@@ -33,7 +33,7 @@ jobs:
         uses: trstringer/manual-approval@v1
         with:
           secret: ${{ secrets.GITHUB_TOKEN }}
-          approvers: gigincg
+          approvers: tellmeY18
           minimum-approvals: 1
           issue-title: "Approve Release"
           issue-body: "Please approve or deny the release."
