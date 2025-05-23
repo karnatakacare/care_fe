@@ -1,0 +1,75 @@
+name: Deploy Care to GCS and Cloud CDN
+on:
+  push:
+    branches:
+      - develop
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      with:
+        ref: ${{ github.event_name == 'workflow_dispatch' && 'kerala-care' || github.ref_name }}
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: 22
+
+    - name: Update .env file
+      run: |
+        echo "${{ vars.DEPLOYMENT_ENV_FILE }}" | base64 --decode > .env
+
+    - name: Install dependencies
+      run: npm install
+
+    - name: Build the React app
+      run: npm run build
+
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+
+    - name: Upload build to GCS
+      run: |
+        gsutil -m rsync -r -d build/ gs://${{ secrets.GCS_BUCKET_NAME }}/
+
+    - name: Invalidate Cloud CDN cache
+      run: |
+        gcloud compute url-maps invalidate-cdn-cache ${{ secrets.CDN_URL_MAP_NAME }} --path "/*" --project=${{ secrets.GCP_PROJECT_ID }}
+
+      - develop
+  workflow_dispatch:
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v3
+      with:
+        ref: ${{ github.event_name == 'workflow_dispatch' && 'kerala-care' || github.ref_name }}
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: 22
+
+    - name: Update .env file
+      run: |
+        echo "${{ vars.DEPLOYMENT_ENV_FILE }}" | base64 --decode > .env
+
+    - name: Install dependencies
+      run: npm install
+
+    - name: Build the React app
+      run: npm run build
+
