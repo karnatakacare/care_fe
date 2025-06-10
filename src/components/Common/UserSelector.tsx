@@ -77,8 +77,8 @@ export default function UserSelector({
     isFetching,
   } = useInfiniteQuery({
     queryKey: ["users", facilityId, search, organizationId],
-    queryFn: async ({ pageParam = 0 }) => {
-      const response = await query(
+    queryFn: async ({ pageParam = 0, signal }) => {
+      const response = await query.debounced(
         facilityId
           ? organizationId
             ? facilityOrganizationApi.listUsers
@@ -88,7 +88,7 @@ export default function UserSelector({
           pathParams: getPathParams(),
           queryParams: getQueryParams(pageParam),
         },
-      )({ signal: new AbortController().signal });
+      )({ signal });
       return response;
     },
     initialPageParam: 0,
@@ -113,6 +113,7 @@ export default function UserSelector({
           variant="outline"
           role="combobox"
           className="min-w-60 w-full justify-start"
+          data-cy="select-assigned-user"
         >
           {selected ? (
             <div className="flex items-center gap-2">
