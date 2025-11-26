@@ -15,11 +15,11 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import Page from "@/components/Common/Page";
 
-import routes from "@/Utils/request/api";
 import query from "@/Utils/request/query";
+import useCurrentFacility from "@/pages/Facility/utils/useCurrentFacility";
 import {
-  FacilityOrganization,
   FacilityOrganizationParent,
+  FacilityOrganizationRead,
 } from "@/types/facilityOrganization/facilityOrganization";
 import facilityOrganizationApi from "@/types/facilityOrganization/facilityOrganizationApi";
 
@@ -28,13 +28,11 @@ import FacilityOrganizationView from "./FacilityOrganizationView";
 import FacilityOrganizationNavbar from "./components/FacilityOrganizationNavbar";
 
 interface Props {
-  facilityId: string;
   organizationId?: string;
   currentTab?: string;
 }
 
 export default function FacilityOrganizationList({
-  facilityId,
   organizationId,
   currentTab = "departments",
 }: Props) {
@@ -43,14 +41,9 @@ export default function FacilityOrganizationList({
     Set<string>
   >(new Set([]));
 
-  const { data: facilityData } = useQuery({
-    queryKey: ["facility", facilityId],
-    queryFn: query(routes.getPermittedFacility, {
-      pathParams: { id: facilityId },
-    }),
-  });
+  const { facility, facilityId } = useCurrentFacility();
 
-  const { data: org } = useQuery<FacilityOrganization>({
+  const { data: org } = useQuery({
     queryKey: ["facilityOrganization", organizationId],
     queryFn: query(facilityOrganizationApi.get, {
       pathParams: { facilityId, organizationId: organizationId! },
@@ -59,7 +52,7 @@ export default function FacilityOrganizationList({
   });
 
   const handleOrganizationSelect = useCallback(
-    (organization: FacilityOrganization) => {
+    (organization: FacilityOrganizationRead) => {
       navigate(
         `/facility/${facilityId}/settings/departments/${organization.id}/${currentTab}`,
       );
@@ -177,9 +170,7 @@ export default function FacilityOrganizationList({
                           <button type="button">{t("departments")}</button>
                         </BreadcrumbLink>
                       </BreadcrumbItem>
-                      <BreadcrumbItem>
-                        <BreadcrumbSeparator />
-                      </BreadcrumbItem>
+                      <BreadcrumbSeparator />
                       {orgParents.reverse().map((parent) => (
                         <React.Fragment key={parent.id}>
                           <BreadcrumbItem>
@@ -191,9 +182,7 @@ export default function FacilityOrganizationList({
                               <button type="button">{parent.name}</button>
                             </BreadcrumbLink>
                           </BreadcrumbItem>
-                          <BreadcrumbItem key={`ellipsis-${parent.id}`}>
-                            <BreadcrumbSeparator />
-                          </BreadcrumbItem>
+                          <BreadcrumbSeparator />
                         </React.Fragment>
                       ))}
                       <BreadcrumbItem key={org?.id}>
@@ -215,10 +204,7 @@ export default function FacilityOrganizationList({
                     <div className="flex items-center">
                       <h2 className="text-xl font-semibold">{org.name}</h2>
                       {org.org_type && (
-                        <Badge
-                          variant="outline"
-                          className="ml-2 border border-transparent text-indigo-800 bg-indigo-100 py-1 w-auto"
-                        >
+                        <Badge variant="indigo" className="ml-2 w-auto">
                           {t(`facility_organization_type__${org.org_type}`)}
                         </Badge>
                       )}
@@ -241,7 +227,6 @@ export default function FacilityOrganizationList({
                               key={item.value}
                               value={item.value}
                               className="border-0 border-b-2 border-transparent px-2 py-2 text-gray-600 hover:text-gray-900 data-[state=active]:text-primary-800  data-[state=active]:border-primary-700 data-[state=active]:bg-transparent data-[state=active]:shadow-none rounded-none"
-                              data-cy={`${item.value}-tab`}
                             >
                               {item.title}
                             </TabsTrigger>
@@ -256,13 +241,13 @@ export default function FacilityOrganizationList({
                     <FacilityOrganizationUsers
                       id={organizationId}
                       facilityId={facilityId}
-                      permissions={facilityData?.permissions ?? []}
+                      permissions={facility?.permissions ?? []}
                     />
                   ) : (
                     <FacilityOrganizationView
                       id={organizationId}
                       facilityId={facilityId}
-                      permissions={facilityData?.permissions ?? []}
+                      permissions={facility?.permissions ?? []}
                     />
                   )}
                 </div>

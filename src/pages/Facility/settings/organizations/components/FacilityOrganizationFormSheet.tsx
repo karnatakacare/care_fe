@@ -6,8 +6,6 @@ import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import * as z from "zod";
 
-import CareIcon from "@/CAREUI/icons/CareIcon";
-
 import { Button } from "@/components/ui/button";
 import {
   Form,
@@ -34,32 +32,35 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 import mutate from "@/Utils/request/mutate";
 import {
-  FacilityOrganization,
-  FacilityOrganizationCreate,
-  FacilityOrganizationEdit,
+  FacilityOrganizationRead,
+  FacilityOrganizationType,
 } from "@/types/facilityOrganization/facilityOrganization";
 import facilityOrganizationApi from "@/types/facilityOrganization/facilityOrganizationApi";
 
 interface Props {
   facilityId: string;
   parentId?: string;
-  org?: FacilityOrganization;
+  org?: FacilityOrganizationRead;
+
+  trigger: React.ReactNode;
+
+  tooltip?: string;
 }
-
-const ORG_TYPES = [
-  { value: "dept", label: "department" },
-  { value: "team", label: "team" },
-] as const;
-
-type OrgType = (typeof ORG_TYPES)[number]["value"];
 
 export default function FacilityOrganizationFormSheet({
   facilityId,
   parentId,
   org,
+  trigger,
+  tooltip,
 }: Props) {
   const { t } = useTranslation();
 
@@ -72,8 +73,18 @@ export default function FacilityOrganizationFormSheet({
       .string()
       .trim()
       .min(1, { message: t("field_required") }),
-    description: z.string().optional(),
-    org_type: z.enum(["dept", "team"]),
+    description: z.string().trim().default(""),
+    org_type: z.nativeEnum(FacilityOrganizationType).refine(
+      (val) => {
+        return (
+          val === FacilityOrganizationType.DEPT ||
+          val === FacilityOrganizationType.TEAM
+        );
+      },
+      {
+        message: t("invalid_organization_type"),
+      },
+    ),
   });
 
   const form = useForm({
@@ -81,7 +92,7 @@ export default function FacilityOrganizationFormSheet({
     defaultValues: {
       name: "",
       description: "",
-      org_type: "dept" as OrgType,
+      org_type: FacilityOrganizationType.DEPT,
     },
   });
 
@@ -90,17 +101,15 @@ export default function FacilityOrganizationFormSheet({
       form.reset({
         name: org.name || "",
         description: org.description || "",
-        org_type: org.org_type as OrgType,
+        org_type: org.org_type,
       });
     }
   }, [isEditMode, org, open]);
 
   const { mutate: createOrganization, isPending: isCreating } = useMutation({
-    mutationFn: (body: FacilityOrganizationCreate) =>
-      mutate(facilityOrganizationApi.create, {
-        pathParams: { facilityId },
-        body,
-      })(body),
+    mutationFn: mutate(facilityOrganizationApi.create, {
+      pathParams: { facilityId },
+    }),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["facilityOrganization"],
@@ -109,20 +118,12 @@ export default function FacilityOrganizationFormSheet({
       setOpen(false);
       form.reset();
     },
-    onError: (error) => {
-      const errorData = error.cause as { errors: { msg: string }[] };
-      errorData.errors.forEach((er) => {
-        toast.error(er.msg);
-      });
-    },
   });
 
   const { mutate: updateOrganization, isPending: isUpdating } = useMutation({
-    mutationFn: (body: FacilityOrganizationEdit) =>
-      mutate(facilityOrganizationApi.update, {
-        pathParams: { facilityId, organizationId: org?.id },
-        body,
-      })(body),
+    mutationFn: mutate(facilityOrganizationApi.update, {
+      pathParams: { facilityId, organizationId: org?.id },
+    }),
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["facilityOrganization"],
@@ -135,7 +136,7 @@ export default function FacilityOrganizationFormSheet({
   const onSubmit = (values: z.infer<typeof formSchema>) => {
     const data = {
       name: values.name.trim(),
-      description: values.description?.trim() || undefined,
+      description: values.description.trim(),
       org_type: values.org_type,
       parent: parentId,
     };
@@ -143,7 +144,7 @@ export default function FacilityOrganizationFormSheet({
     if (isEditMode) {
       updateOrganization({ ...data, facility: facilityId });
     } else {
-      createOrganization(data);
+      createOrganization({ ...data, facility: facilityId });
     }
   };
 
@@ -151,24 +152,17 @@ export default function FacilityOrganizationFormSheet({
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger asChild>
-        {isEditMode ? (
-          <Button
-            data-cy="edit-department-team"
-            variant="white"
-            size="sm"
-            className="font-semibold"
-          >
-            {t("edit")}
-          </Button>
-        ) : (
-          <Button data-cy="add-department/team-button">
-            <CareIcon icon="l-plus" className="mr-2 size-4" />
-            {t("add_department_team")}
-          </Button>
-        )}
-      </SheetTrigger>
-      <SheetContent>
+      {tooltip ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <SheetTrigger asChild>{trigger}</SheetTrigger>
+          </TooltipTrigger>
+          <TooltipContent>{tooltip}</TooltipContent>
+        </Tooltip>
+      ) : (
+        <SheetTrigger asChild>{trigger}</SheetTrigger>
+      )}
+      <SheetContent onCloseAutoFocus={(event) => event.preventDefault()}>
         <SheetHeader>
           <SheetTitle>
             {isEditMode
@@ -195,7 +189,6 @@ export default function FacilityOrganizationFormSheet({
                   <FormControl>
                     <Input
                       {...field}
-                      data-cy="department-team-name-input"
                       placeholder={t("enter_department_team_name")}
                     />
                   </FormControl>
@@ -212,18 +205,24 @@ export default function FacilityOrganizationFormSheet({
                   <FormLabel>{t(`type`)}</FormLabel>
                   <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
-                      <SelectTrigger data-cy="select-type-dropdown">
+                      <SelectTrigger ref={field.ref}>
                         <SelectValue
                           placeholder={t("select_organization_type")}
                         />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
-                      {ORG_TYPES.map((type) => (
-                        <SelectItem key={type.value} value={type.value}>
-                          {t(type.label)}
-                        </SelectItem>
-                      ))}
+                      {Object.values(FacilityOrganizationType)
+                        .filter(
+                          (type) => type !== FacilityOrganizationType.ROOT,
+                        )
+                        .map((type) => (
+                          <SelectItem key={type} value={type}>
+                            {type === FacilityOrganizationType.DEPT
+                              ? t("department")
+                              : t("team")}
+                          </SelectItem>
+                        ))}
                     </SelectContent>
                   </Select>
                   <FormMessage />
@@ -240,7 +239,6 @@ export default function FacilityOrganizationFormSheet({
                   <FormControl>
                     <Textarea
                       {...field}
-                      data-cy="department-team-description-input"
                       placeholder={t("enter_department_team_description")}
                     />
                   </FormControl>
@@ -265,11 +263,6 @@ export default function FacilityOrganizationFormSheet({
                   isPending ||
                   !form.formState.isValid ||
                   !form.formState.isDirty
-                }
-                data-cy={
-                  isEditMode
-                    ? "update-organization-button"
-                    : "create-organization-button"
                 }
               >
                 {isPending

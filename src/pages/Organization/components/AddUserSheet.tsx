@@ -14,12 +14,12 @@ import {
 
 import UserForm from "@/components/Users/UserForm";
 
-import { UserBase } from "@/types/user/user";
+import { UserReadMinimal } from "@/types/user/user";
 
 interface AddUserSheetProps {
   open: boolean;
   setOpen: (open: boolean) => void;
-  onUserCreated?: (user: UserBase) => void;
+  onUserCreated?: (user: UserReadMinimal) => void;
   organizationId?: string;
 }
 
@@ -33,15 +33,12 @@ export default function AddUserSheet({
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button variant="outline" data-cy="add-user-button">
+        <Button variant="outline">
           <CareIcon icon="l-plus" className="mr-2 size-4" />
           {t("add_user")}
         </Button>
       </SheetTrigger>
-      <SheetContent
-        className="w-full sm:max-w-2xl overflow-y-auto"
-        data-cy="add-user-form"
-      >
+      <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
         <SheetHeader>
           <SheetTitle>{t("add_new_user")}</SheetTitle>
           <SheetDescription>{t("create_user_and_add_to_org")}</SheetDescription>

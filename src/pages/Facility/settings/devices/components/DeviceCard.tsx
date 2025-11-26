@@ -9,45 +9,27 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 import DeviceTypeIcon from "@/pages/Facility/settings/devices/components/DeviceTypeIcon";
-import { DeviceList } from "@/types/device/device";
-import { Encounter } from "@/types/emr/encounter";
+import {
+  DEVICE_AVAILABILITY_STATUS_COLORS,
+  DeviceList,
+} from "@/types/device/device";
+import { EncounterRead } from "@/types/emr/encounter/encounter";
 
 interface Props {
   device: DeviceList;
-  encounter?: Encounter;
+  encounter?: EncounterRead;
 }
 
 export default function DeviceCard({ device, encounter }: Props) {
   const { t } = useTranslation();
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "active":
-        return "bg-green-100 text-green-800 hover:bg-green-100/80";
-      case "inactive":
-        return "bg-gray-100 text-gray-800 hover:bg-gray-100/80";
-      case "entered_in_error":
-        return "bg-red-100 text-red-800 hover:bg-red-100/80";
-      default:
-        return "bg-gray-100 text-gray-800 hover:bg-gray-100/80";
-    }
-  };
-
-  const getAvailabilityStatusColor = (status: string) => {
-    switch (status) {
-      case "available":
-        return "bg-green-100 text-green-800 hover:bg-green-100/80";
-      case "lost":
-        return "bg-yellow-100 text-yellow-800 hover:bg-yellow-100/80";
-      case "damaged":
-      case "destroyed":
-        return "bg-red-100 text-red-800 hover:bg-red-100/80";
-      default:
-        return "bg-gray-100 text-gray-800 hover:bg-gray-100/80";
-    }
-  };
 
   return (
     <Link
@@ -58,17 +40,27 @@ export default function DeviceCard({ device, encounter }: Props) {
       <Card className="hover:shadow-md transition-shadow h-full">
         <CardHeader className="pb-2">
           <div className="flex items-start justify-between">
-            <div className="flex items-start gap-2">
+            <div className="flex items-start gap-2 min-w-0">
               <div className="mt-1">
                 <DeviceTypeIcon
                   className="size-5 text-gray-500"
                   type={device.care_type}
                 />
               </div>
-              <div>
-                <CardTitle className="text-lg font-semibold line-clamp-1">
-                  {device.registered_name}
-                </CardTitle>
+              <div className="min-w-0 max-w-full">
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <CardTitle className="text-lg font-semibold truncate">
+                        {device.registered_name}
+                      </CardTitle>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-sm sm:max-w-md break-words">
+                      <p>{device.registered_name}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+
                 {device.user_friendly_name && (
                   <CardDescription className="line-clamp-1">
                     {device.user_friendly_name}
@@ -80,25 +72,18 @@ export default function DeviceCard({ device, encounter }: Props) {
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-2">
-            <Badge
-              variant="secondary"
-              className={getStatusColor(device.status)}
-            >
+            <Badge variant={DEVICE_AVAILABILITY_STATUS_COLORS[device.status]}>
               {t(`device_status_${device.status}`)}
             </Badge>
             <Badge
-              variant="secondary"
-              className={getAvailabilityStatusColor(device.availability_status)}
+              variant={
+                DEVICE_AVAILABILITY_STATUS_COLORS[device.availability_status]
+              }
             >
               {t(`device_availability_status_${device.availability_status}`)}
             </Badge>
             {device.care_type && (
-              <Badge
-                variant="secondary"
-                className="bg-blue-100 text-blue-800 hover:bg-blue-100/80"
-              >
-                {device.care_type}
-              </Badge>
+              <Badge variant="blue">{device.care_type}</Badge>
             )}
           </div>
         </CardContent>

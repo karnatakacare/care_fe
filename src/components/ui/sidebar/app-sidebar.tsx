@@ -1,5 +1,5 @@
 import { DashboardIcon } from "@radix-ui/react-icons";
-import { Link, useLocationChange, usePathParams } from "raviger";
+import { Link, useLocationChange } from "raviger";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
@@ -15,8 +15,11 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { AdminNav } from "@/components/ui/sidebar/admin-nav";
-import { FacilityNav } from "@/components/ui/sidebar/facility-nav";
-import { FacilitySwitcher } from "@/components/ui/sidebar/facility-switcher";
+import { FacilityNav } from "@/components/ui/sidebar/facility/facility-nav";
+import { FacilitySwitcher } from "@/components/ui/sidebar/facility/facility-switcher";
+import { LocationNav } from "@/components/ui/sidebar/facility/location/location-nav";
+import { LocationSwitcher } from "@/components/ui/sidebar/facility/location/location-switcher";
+import { ServiceNav } from "@/components/ui/sidebar/facility/service/service-nav";
 import {
   FacilityNavUser,
   PatientNavUser,
@@ -25,10 +28,14 @@ import { OrgNav } from "@/components/ui/sidebar/org-nav";
 import { OrganizationSwitcher } from "@/components/ui/sidebar/organization-switcher";
 import { PatientNav } from "@/components/ui/sidebar/patient-nav";
 
-import { AuthUserModel, UserFacilityModel } from "@/components/Users/models";
+import { useRouteParams } from "@/hooks/useRouteParams";
+import { ServiceSwitcher } from "./facility/service/service-switcher";
+
+import { FacilityBareMinimum } from "@/types/facility/facility";
+import { CurrentUserRead } from "@/types/user/user";
 
 interface AppSidebarProps extends React.ComponentProps<typeof Sidebar> {
-  user?: AuthUserModel;
+  user?: CurrentUserRead;
   facilitySidebar?: boolean;
   sidebarFor?: SidebarFor;
 }
@@ -45,20 +52,36 @@ export function AppSidebar({
   ...props
 }: AppSidebarProps) {
   const { t } = useTranslation();
-  const exactMatch = usePathParams("/facility/:facilityId");
-  const subpathMatch = usePathParams("/facility/:facilityId/*");
-  const facilityId = exactMatch?.facilityId || subpathMatch?.facilityId;
 
-  const orgMatch = usePathParams("/organization/:id");
-  const orgSubpathMatch = usePathParams("/organization/:id/*");
-  const organizationId = orgMatch?.id || orgSubpathMatch?.id;
+  const { facilityId } = useRouteParams("/facility/:facilityId");
+  const { locationId } = useRouteParams("/facility/:_/locations/:locationId");
+  const { organizationId } = useRouteParams("/organization/:organizationId");
+  const { serviceId } = useRouteParams(
+    "/facility/:facilityId/services/:serviceId",
+  );
 
-  const facilitySidebar = sidebarFor === SidebarFor.FACILITY;
+  const facilitySidebar =
+    !!facilityId &&
+    !locationId &&
+    !serviceId &&
+    sidebarFor === SidebarFor.FACILITY;
+  const facilityLocationSidebar =
+    !!facilityId &&
+    !!locationId &&
+    !serviceId &&
+    sidebarFor === SidebarFor.FACILITY;
+  const facilityServiceSidebar =
+    !!facilityId &&
+    !!serviceId &&
+    !locationId &&
+    sidebarFor === SidebarFor.FACILITY;
+
   const patientSidebar = sidebarFor === SidebarFor.PATIENT;
   const adminSidebar = sidebarFor === SidebarFor.ADMIN;
+
   const { isMobile, setOpenMobile } = useSidebar();
   const [selectedFacility, setSelectedFacility] =
-    React.useState<UserFacilityModel | null>(null);
+    React.useState<FacilityBareMinimum | null>(null);
 
   const selectedOrganization = React.useMemo(() => {
     if (!user?.organizations || !organizationId) return undefined;
@@ -104,34 +127,44 @@ export function AppSidebar({
             selectedFacility={selectedFacility}
           />
         )}
-        {!selectedFacility && !selectedOrganization && (
-          <SidebarMenu>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                asChild
-                size="lg"
-                className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground hover:bg-white mt-2"
-              >
-                <Link href="/">
-                  <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-sidebar-primary-foreground">
-                    <DashboardIcon className="size-4" />
-                  </div>
-                  <div className="grid flex-1 text-left text-sm leading-tight text-gray-900">
-                    <span className="truncate font-semibold">
-                      {t("view_dashboard")}
-                    </span>
-                  </div>
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-          </SidebarMenu>
-        )}
+        {locationId && <LocationSwitcher />}
+        {serviceId && <ServiceSwitcher />}
+        {!locationId &&
+          !serviceId &&
+          !selectedFacility &&
+          !selectedOrganization && (
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  size="lg"
+                  className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground hover:bg-white mt-2"
+                >
+                  <Link href="/">
+                    <div className="flex aspect-square size-8 items-center justify-center rounded-lg bg-primary text-sidebar-primary-foreground">
+                      <DashboardIcon className="size-4" />
+                    </div>
+                    <div className="grid flex-1 text-left text-sm leading-tight text-gray-900">
+                      <span className="truncate font-semibold">
+                        {t("view_dashboard")}
+                      </span>
+                    </div>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          )}
       </SidebarHeader>
 
       <SidebarContent>
-        {facilitySidebar && !selectedOrganization && (
-          <FacilityNav selectedFacility={selectedFacility} />
-        )}
+        {facilityLocationSidebar && <LocationNav />}
+        {facilityServiceSidebar && <ServiceNav />}
+        {facilitySidebar &&
+          !facilityLocationSidebar &&
+          !facilityServiceSidebar &&
+          !selectedOrganization && (
+            <FacilityNav selectedFacility={selectedFacility} />
+          )}
         {selectedOrganization && (
           <OrgNav organizations={user?.organizations || []} />
         )}

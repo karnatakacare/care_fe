@@ -23,7 +23,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Menubar, MenubarMenu, MenubarTrigger } from "@/components/ui/menubar";
-import { NavigationLink } from "@/components/ui/sidebar/facility-nav";
+import { NavigationLink } from "@/components/ui/sidebar/nav-main";
 
 import Page from "@/components/Common/Page";
 
@@ -33,6 +33,7 @@ import OrganizationLayoutSkeleton from "@/pages/Organization/components/Organiza
 import {
   Organization,
   OrganizationParent,
+  OrgType,
 } from "@/types/organization/organization";
 import organizationApi from "@/types/organization/organizationApi";
 
@@ -59,7 +60,7 @@ export default function OrganizationLayout({
     ? `/organization/${navOrganizationId}/children`
     : `/organization`;
 
-  const { data: org, isLoading } = useQuery<Organization>({
+  const { data: org, isLoading } = useQuery({
     queryKey: ["organization", id],
     queryFn: query(organizationApi.get, {
       pathParams: { id },
@@ -104,7 +105,9 @@ export default function OrganizationLayout({
       url: `${baseUrl}/${id}/facilities`,
       name: "Facilities",
       icon: <CareIcon icon="d-hospital" />,
-      visibility: hasPermission("can_read_facility", org.permissions),
+      visibility:
+        org.org_type === OrgType.GOVT &&
+        hasPermission("can_read_facility", org.permissions),
     },
   ];
 
@@ -138,9 +141,7 @@ export default function OrganizationLayout({
                       </Link>
                     </BreadcrumbLink>
                   </BreadcrumbItem>
-                  <BreadcrumbItem>
-                    <BreadcrumbSeparator />
-                  </BreadcrumbItem>
+                  <BreadcrumbSeparator />
                 </React.Fragment>
               ))}
               <BreadcrumbItem key={org.id}>
@@ -161,7 +162,6 @@ export default function OrganizationLayout({
             .map((item) => (
               <MenubarMenu key={item.url}>
                 <MenubarTrigger
-                  data-cy={`org-nav-${item.name.toLowerCase()}`}
                   className={`${
                     path === item.url
                       ? "font-medium text-primary-700 bg-gray-100"

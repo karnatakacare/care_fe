@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 
 import { DateTimeInput } from "@/components/Common/DateTimeInput";
 
-import { LocationHistory } from "@/types/emr/encounter";
+import { LocationHistory } from "@/types/emr/encounter/encounter";
 import { LocationAssociationStatus } from "@/types/location/association";
 
 import { LocationCard } from "./LocationCard";
@@ -168,7 +168,6 @@ export function LocationCardWrapper({
                 {t("cancel")}
               </Button>
               <Button
-                data-cy="location-card-wrapper-save-button"
                 variant="primary"
                 onClick={handleConfirm}
                 disabled={isPending}

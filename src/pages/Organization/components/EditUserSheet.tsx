@@ -10,13 +10,13 @@ import {
 
 import UserForm from "@/components/Users/UserForm";
 
-import { UserBase } from "@/types/user/user";
+import { UserReadMinimal } from "@/types/user/user";
 
 interface EditUserSheetProps {
   existingUsername: string;
   open: boolean;
   setOpen: (open: boolean) => void;
-  onUserUpdated?: (user: UserBase) => void;
+  onUserUpdated?: (user: UserReadMinimal) => void;
 }
 
 export default function EditUserSheet({
@@ -28,13 +28,10 @@ export default function EditUserSheet({
   const { t } = useTranslation();
   return (
     <Sheet open={open} onOpenChange={setOpen}>
-      <SheetContent
-        className="w-full sm:max-w-2xl overflow-y-auto"
-        data-cy="add-user-form"
-      >
+      <SheetContent className="w-full sm:max-w-2xl overflow-y-auto">
         <SheetHeader>
           <SheetTitle>{t("edit_user")}</SheetTitle>
-          <SheetDescription>{t("update_user")}</SheetDescription>
+          <SheetDescription>{t("edit_user_description")}</SheetDescription>
         </SheetHeader>
         <div className="mt-6">
           <UserForm

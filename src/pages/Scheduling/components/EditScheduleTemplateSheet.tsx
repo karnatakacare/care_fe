@@ -1,35 +1,21 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import dayjs from "dayjs";
-import { Loader2, SaveIcon, Trash2Icon } from "lucide-react";
+import { SaveIcon, Trash2Icon } from "lucide-react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
-import { useTranslation } from "react-i18next";
-import { Trans } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import * as z from "zod";
-
-import { cn } from "@/lib/utils";
 
 import Callout from "@/CAREUI/display/Callout";
 import CareIcon from "@/CAREUI/icons/CareIcon";
 import WeekdayCheckbox, {
   DayOfWeek,
 } from "@/CAREUI/interactive/WeekdayCheckbox";
-
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
 import {
   Form,
@@ -52,18 +38,20 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
-import { formatAvailabilityTime } from "@/components/Users/UserAvailabilityTab";
+import ConfirmActionDialog from "@/components/Common/ConfirmActionDialog";
 
 import mutate from "@/Utils/request/mutate";
 import { Time } from "@/Utils/types";
 import { dateQueryString } from "@/Utils/utils";
 import {
   calculateSlotDuration,
+  formatAvailabilityTime,
   getSlotsPerSession,
   getTokenDuration,
 } from "@/pages/Scheduling/utils";
 import {
   AvailabilityDateTime,
+  SchedulableResourceType,
   ScheduleAvailability,
   ScheduleAvailabilityCreateRequest,
   ScheduleTemplate,
@@ -73,14 +61,16 @@ import scheduleApis from "@/types/scheduling/scheduleApi";
 export default function EditScheduleTemplateSheet({
   template,
   facilityId,
-  userId,
+  resourceType,
+  resourceId,
   trigger,
   open,
   onOpenChange,
 }: {
   template: ScheduleTemplate;
   facilityId: string;
-  userId: string;
+  resourceType: SchedulableResourceType;
+  resourceId: string;
   trigger?: React.ReactNode;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -103,7 +93,8 @@ export default function EditScheduleTemplateSheet({
           <ScheduleTemplateEditor
             template={template}
             facilityId={facilityId}
-            userId={userId}
+            resourceType={resourceType}
+            resourceId={resourceId}
           />
 
           <div className="mt-4">
@@ -124,14 +115,16 @@ export default function EditScheduleTemplateSheet({
               availability={availability}
               scheduleId={template.id}
               facilityId={facilityId}
-              userId={userId}
+              resourceType={resourceType}
+              resourceId={resourceId}
             />
           ))}
 
           <NewAvailabilityCard
             scheduleId={template.id}
             facilityId={facilityId}
-            userId={userId}
+            resourceType={resourceType}
+            resourceId={resourceId}
           />
         </div>
       </SheetContent>
@@ -142,15 +135,17 @@ export default function EditScheduleTemplateSheet({
 const ScheduleTemplateEditor = ({
   template,
   facilityId,
-  userId,
+  resourceId,
+  resourceType,
 }: {
   template: ScheduleTemplate;
   facilityId: string;
-  userId: string;
+  resourceId: string;
+  resourceType: SchedulableResourceType;
 }) => {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   const templateFormSchema = z
     .object({
@@ -181,30 +176,24 @@ const ScheduleTemplateEditor = ({
 
   const { mutate: updateTemplate, isPending: isUpdating } = useMutation({
     mutationFn: mutate(scheduleApis.templates.update, {
-      pathParams: {
-        facility_id: facilityId,
-        id: template.id,
-      },
+      pathParams: { facilityId, id: template.id },
     }),
     onSuccess: () => {
       toast.success("Schedule template updated successfully");
       queryClient.invalidateQueries({
-        queryKey: ["user-schedule-templates", { facilityId, userId }],
+        queryKey: ["schedule", facilityId, { resourceType, resourceId }],
       });
     },
   });
 
   const { mutate: deleteTemplate, isPending: isDeleting } = useMutation({
     mutationFn: mutate(scheduleApis.templates.delete, {
-      pathParams: {
-        facility_id: facilityId,
-        id: template.id,
-      },
+      pathParams: { facilityId, id: template.id },
     }),
     onSuccess: () => {
       toast.success(t("template_deleted"));
       queryClient.invalidateQueries({
-        queryKey: ["user-schedule-templates", { facilityId, userId }],
+        queryKey: ["schedule", facilityId, { resourceType, resourceId }],
       });
     },
   });
@@ -275,57 +264,17 @@ const ScheduleTemplateEditor = ({
           </div>
 
           <div className="flex justify-end gap-2">
-            <AlertDialog
-              open={isDeleteDialogOpen}
-              onOpenChange={(open) => setIsDeleteDialogOpen(open)}
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isProcessing}
+              onClick={() => setShowDeleteDialog(true)}
+              size="sm"
             >
-              <AlertDialogTrigger asChild>
-                <Button
-                  type="button"
-                  variant="outline"
-                  disabled={isProcessing}
-                  size="sm"
-                >
-                  <Trash2Icon />
-                  {isDeleting ? t("deleting") : t("delete")}
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>{t("are_you_sure")}</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    <Alert variant="destructive" className="mt-4">
-                      <AlertTitle>{t("warning")}</AlertTitle>
-                      <AlertDescription>
-                        {t(
-                          "this_will_permanently_remove_the_scheduled_template_and_cannot_be_undone",
-                        )}
-                      </AlertDescription>
-                    </Alert>
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel
-                    onClick={() => setIsDeleteDialogOpen(false)}
-                  >
-                    {t("cancel")}
-                  </AlertDialogCancel>
-                  <AlertDialogAction
-                    className={cn(buttonVariants({ variant: "destructive" }))}
-                    onClick={() => {
-                      deleteTemplate();
-                      setIsDeleteDialogOpen(false);
-                    }}
-                  >
-                    {isDeleting ? (
-                      <Loader2 className="size-4 animate-spin mr-2" />
-                    ) : (
-                      t("confirm")
-                    )}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+              <Trash2Icon />
+              {isDeleting ? t("deleting") : t("delete")}
+            </Button>
+
             <Button
               variant="primary"
               type="submit"
@@ -338,6 +287,26 @@ const ScheduleTemplateEditor = ({
           </div>
         </form>
       </Form>
+      <ConfirmActionDialog
+        open={showDeleteDialog}
+        onOpenChange={setShowDeleteDialog}
+        title={t("are_you_sure")}
+        description={
+          <Alert variant="destructive" className="mt-4">
+            <AlertTitle>{t("warning")}</AlertTitle>
+            <AlertDescription>
+              {t(
+                "this_will_permanently_remove_the_scheduled_template_and_cannot_be_undone",
+              )}
+            </AlertDescription>
+          </Alert>
+        }
+        onConfirm={() => {
+          deleteTemplate();
+        }}
+        confirmText={isDeleting ? t("deleting") : t("delete")}
+        variant="destructive"
+      />
     </div>
   );
 };
@@ -346,29 +315,27 @@ const AvailabilityEditor = ({
   availability,
   scheduleId,
   facilityId,
-  userId,
+  resourceType,
+  resourceId,
 }: {
   availability: ScheduleAvailability;
   scheduleId: string;
   facilityId: string;
-  userId: string;
+  resourceType: SchedulableResourceType;
+  resourceId: string;
 }) => {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
-  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   const { mutate: deleteAvailability, isPending: isDeleting } = useMutation({
     mutationFn: mutate(scheduleApis.templates.availabilities.delete, {
-      pathParams: {
-        facility_id: facilityId,
-        schedule_id: scheduleId,
-        id: availability.id,
-      },
+      pathParams: { facilityId, scheduleId, id: availability.id },
     }),
     onSuccess: () => {
       toast.success(t("schedule_availability_deleted_successfully"));
       queryClient.invalidateQueries({
-        queryKey: ["user-schedule-templates", { facilityId, userId }],
+        queryKey: ["schedule", facilityId, { resourceType, resourceId }],
       });
     },
   });
@@ -413,59 +380,18 @@ const AvailabilityEditor = ({
         <div className="flex items-center gap-3">
           <CareIcon icon="l-clock" className="text-lg text-blue-600" />
           <span className="font-semibold">{availability.name}</span>
-          <span className="rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">
+          <Badge variant="blue" className="rounded-full text-xs">
             {t(`SCHEDULE_AVAILABILITY_TYPE__${availability.slot_type}`)}
-          </span>
+          </Badge>
         </div>
-
-        <AlertDialog
-          open={isDeleteDialogOpen}
-          onOpenChange={(open) => setIsDeleteDialogOpen(open)}
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => setShowDeleteDialog(true)}
+          disabled={isDeleting}
         >
-          <AlertDialogTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setIsDeleteDialogOpen(true)}
-              disabled={isDeleting}
-            >
-              <CareIcon icon="l-trash" className="text-lg" />
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>{t("are_you_sure")}</AlertDialogTitle>
-              <AlertDialogDescription>
-                <Alert variant="destructive" className="mt-4">
-                  <AlertTitle>{t("warning")}</AlertTitle>
-                  <AlertDescription>
-                    {t(
-                      "this_will_permanently_remove_the_session_and_cannot_be_undone",
-                    )}
-                  </AlertDescription>
-                </Alert>
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel onClick={() => setIsDeleteDialogOpen(false)}>
-                {t("cancel")}
-              </AlertDialogCancel>
-              <AlertDialogAction
-                className={cn(buttonVariants({ variant: "destructive" }))}
-                onClick={() => {
-                  deleteAvailability();
-                  setIsDeleteDialogOpen(false);
-                }}
-              >
-                {isDeleting ? (
-                  <Loader2 className="size-4 animate-spin mr-2" />
-                ) : (
-                  t("confirm")
-                )}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+          <CareIcon icon="l-trash" className="text-lg" />
+        </Button>
       </div>
 
       <div className="space-y-4">
@@ -479,17 +405,20 @@ const AvailabilityEditor = ({
                 <span className="text-2xl font-semibold text-gray-900">
                   {availability.slot_size_in_minutes}
                 </span>
-                <span className="text-sm font-normal text-gray-500">min</span>
+                <span className="text-sm font-normal text-gray-500">
+                  {t("minutes")}
+                </span>
                 <span className="mx-1 text-gray-400">×</span>
                 <span className="text-2xl font-semibold text-gray-900">
                   {availability.tokens_per_slot}
                 </span>
                 <span className="text-sm font-normal text-gray-500">
-                  patients
+                  {t("patients")}
                 </span>
               </div>
               <span className="mt-1 text-sm text-gray-500">
-                ≈ {tokenDuration?.toFixed(1).replace(".0", "")} min per patient
+                ≈ {tokenDuration?.toFixed(1).replace(".0", "")}{" "}
+                {t("minutes_per_patient")}{" "}
               </span>
             </div>
 
@@ -501,18 +430,20 @@ const AvailabilityEditor = ({
                 <span className="text-2xl font-semibold text-gray-900">
                   {totalSlots}
                 </span>
-                <span className="text-sm font-normal text-gray-500">slots</span>
+                <span className="text-sm font-normal text-gray-500">
+                  {t("slots")}
+                </span>
                 <span className="mx-1 text-gray-400">×</span>
                 <span className="text-2xl font-semibold text-gray-900">
                   {availability.tokens_per_slot}
                 </span>
                 <span className="text-sm font-normal text-gray-500">
-                  patients
+                  {t("patients")}
                 </span>
               </div>
               <span className="mt-1 text-sm text-gray-500">
                 = {totalSlots ? totalSlots * availability.tokens_per_slot : 0}{" "}
-                total patients
+                {t("total_patients")}
               </span>
             </div>
           </div>
@@ -548,6 +479,27 @@ const AvailabilityEditor = ({
           </div>
         </div>
       </div>
+
+      <ConfirmActionDialog
+        open={showDeleteDialog}
+        onOpenChange={setShowDeleteDialog}
+        title={t("are_you_sure")}
+        description={
+          <Alert variant="destructive" className="mt-4">
+            <AlertTitle>{t("warning")}</AlertTitle>
+            <AlertDescription>
+              {t(
+                "this_will_permanently_remove_the_session_and_cannot_be_undone",
+              )}
+            </AlertDescription>
+          </Alert>
+        }
+        onConfirm={() => {
+          deleteAvailability();
+        }}
+        confirmText={isDeleting ? t("deleting") : t("delete")}
+        variant="destructive"
+      />
     </div>
   );
 };
@@ -555,11 +507,13 @@ const AvailabilityEditor = ({
 const NewAvailabilityCard = ({
   scheduleId,
   facilityId,
-  userId,
+  resourceType,
+  resourceId,
 }: {
   scheduleId: string;
   facilityId: string;
-  userId: string;
+  resourceType: SchedulableResourceType;
+  resourceId: string;
 }) => {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
@@ -569,15 +523,15 @@ const NewAvailabilityCard = ({
     .object({
       name: z.string().min(1, t("field_required")),
       slot_type: z.enum(["appointment", "open", "closed"]),
-      start_time: z
-        .string()
-        .min(1, t("field_required")) as unknown as z.ZodType<Time>,
-      end_time: z
-        .string()
-        .min(1, t("field_required")) as unknown as z.ZodType<Time>,
+      start_time: z.string().min(1, t("field_required")) as z.ZodType<
+        Time | undefined
+      >,
+      end_time: z.string().min(1, t("field_required")) as z.ZodType<
+        Time | undefined
+      >,
       slot_size_in_minutes: z.number().nullable(),
       tokens_per_slot: z.number().nullable(),
-      reason: z.string(),
+      reason: z.string().trim(),
       weekdays: z
         .array(z.number() as unknown as z.ZodType<DayOfWeek>)
         .min(1, t("schedule_weekdays_min_error")),
@@ -616,15 +570,12 @@ const NewAvailabilityCard = ({
 
   const { mutate: createAvailability, isPending } = useMutation({
     mutationFn: mutate(scheduleApis.templates.availabilities.create, {
-      pathParams: {
-        facility_id: facilityId,
-        schedule_id: scheduleId,
-      },
+      pathParams: { facilityId, scheduleId },
     }),
     onSuccess: () => {
       toast.success(t("schedule_availability_created_successfully"));
       queryClient.invalidateQueries({
-        queryKey: ["user-schedule-templates", { facilityId, userId }],
+        queryKey: ["schedule", facilityId, { resourceType, resourceId }],
       });
       form.reset();
       setIsExpanded(false);
@@ -704,11 +655,11 @@ const NewAvailabilityCard = ({
   const updateSlotDuration = () => {
     const isAutoFill = form.watch("is_auto_fill");
     if (isAutoFill) {
-      const duration = calculateSlotDuration(
-        form.watch("start_time"),
-        form.watch("end_time"),
-        form.watch("num_of_slots"),
-      );
+      const start = form.watch("start_time");
+      const end = form.watch("end_time");
+      const numOfSlots = form.watch("num_of_slots");
+      if (!start || !end) return;
+      const duration = calculateSlotDuration(start, end, numOfSlots);
       form.setValue("slot_size_in_minutes", duration);
     }
   };
@@ -853,6 +804,8 @@ const NewAvailabilityCard = ({
                             <FormControl>
                               <Input
                                 type="number"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
                                 min={1}
                                 defaultValue={1}
                                 {...field}
@@ -883,6 +836,8 @@ const NewAvailabilityCard = ({
                       <FormControl>
                         <Input
                           type="number"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
                           min={0}
                           placeholder="e.g. 10"
                           {...field}
@@ -909,6 +864,8 @@ const NewAvailabilityCard = ({
                       <FormControl>
                         <Input
                           type="number"
+                          inputMode="numeric"
+                          pattern="[0-9]*"
                           min={0}
                           placeholder="e.g. 1"
                           {...field}

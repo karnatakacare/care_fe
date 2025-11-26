@@ -1,14 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import {
-  ArchiveIcon,
-  Eye,
-  FileCheckIcon,
-  HelpCircle,
-  NotepadTextDashedIcon,
-  Pencil,
-  PlusIcon,
-  Search,
-} from "lucide-react";
+import { Eye, Pencil, PlusIcon, Search } from "lucide-react";
 import { Link, useNavigate } from "raviger";
 import { useTranslation } from "react-i18next";
 
@@ -17,6 +8,11 @@ import CareIcon from "@/CAREUI/icons/CareIcon";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  ExpandableText,
+  ExpandableTextContent,
+  ExpandableTextExpandButton,
+} from "@/components/ui/expandable-text";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -41,9 +37,15 @@ import {
 
 import useFilters from "@/hooks/useFilters";
 
+import {
+  VALUESET_STATUS_COLORS,
+  VALUESET_STATUS_ICONS,
+  ValueSetRead,
+  ValueSetStatus,
+} from "@/types/valueSet/valueSet";
+import valueSetApi from "@/types/valueSet/valueSetApi";
 import query from "@/Utils/request/query";
-import { ValuesetBase } from "@/types/valueset/valueset";
-import valuesetApi from "@/types/valueset/valuesetApi";
+import { valuesOf } from "@/Utils/utils";
 
 function EmptyState() {
   const { t } = useTranslation();
@@ -64,14 +66,14 @@ const RenderCard = ({
   valuesets,
   isLoading,
 }: {
-  valuesets: ValuesetBase[];
+  valuesets: ValueSetRead[];
   isLoading: boolean;
 }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
 
   return (
-    <div className="lg:hidden space-y-4 px-4">
+    <div className="md:hidden space-y-4 px-4">
       {isLoading ? (
         <CardGridSkeleton count={5} />
       ) : valuesets.length === 0 ? (
@@ -86,16 +88,8 @@ const RenderCard = ({
               <CardContent className="p-6 relative">
                 <div className="absolute top-4 right-4">
                   <Badge
-                    className={
-                      {
-                        active:
-                          "bg-green-100 text-green-800 hover:bg-green-200",
-                        draft:
-                          "bg-yellow-100 text-yellow-800 hover:bg-yellow-200",
-                        retired: "bg-red-100 text-red-800 hover:bg-red-200",
-                        unknown: "bg-gray-100 text-gray-800 hover:bg-gray-200",
-                      }[valueset.status]
-                    }
+                    variant={VALUESET_STATUS_COLORS[valueset.status]}
+                    className="whitespace-nowrap"
                   >
                     {t(valueset.status)}
                   </Badge>
@@ -148,9 +142,16 @@ const RenderCard = ({
                   <h3 className="text-left text-xs font-medium uppercase tracking-wider text-gray-500">
                     {t("description")}
                   </h3>
-                  <p className="text-sm text-gray-900 line-clamp-2">
-                    {valueset.description}
-                  </p>
+                  <div className="max-w-md text-sm text-gray-900 break-words whitespace-normal">
+                    <ExpandableText>
+                      <ExpandableTextContent>
+                        {valueset.description}
+                      </ExpandableTextContent>
+                      <ExpandableTextExpandButton>
+                        {t("read_more")}
+                      </ExpandableTextExpandButton>
+                    </ExpandableText>
+                  </div>
                 </div>
 
                 <div className="mt-4 flex justify-end">
@@ -188,13 +189,13 @@ const RenderTable = ({
   valuesets,
   isLoading,
 }: {
-  valuesets: ValuesetBase[];
+  valuesets: ValueSetRead[];
   isLoading: boolean;
 }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   return (
-    <div className="hidden lg:block overflow-hidden rounded-lg bg-white shadow-sm">
+    <div className="hidden md:block overflow-hidden rounded-lg bg-white shadow-sm">
       {isLoading ? (
         <TableSkeleton count={5} />
       ) : valuesets.length === 0 ? (
@@ -248,24 +249,21 @@ const RenderTable = ({
                 </TableCell>
                 <TableCell className="whitespace-nowrap px-6 py-4">
                   <Badge
-                    className={
-                      {
-                        active:
-                          "bg-green-100 text-green-800 hover:bg-green-200",
-                        draft:
-                          "bg-yellow-100 text-yellow-800 hover:bg-yellow-200",
-                        retired: "bg-red-100 text-red-800 hover:bg-red-200",
-                        unknown: "bg-gray-100 text-gray-800 hover:bg-gray-200",
-                      }[valueset.status]
-                    }
+                    variant={VALUESET_STATUS_COLORS[valueset.status]}
+                    className="whitespace-nowrap"
                   >
                     {t(valueset.status)}
                   </Badge>
                 </TableCell>
-                <TableCell className="px-6 py-4">
-                  <div className="max-w-md truncate text-sm text-gray-900 break-words whitespace-normal">
-                    {valueset.description}
-                  </div>
+                <TableCell className="max-w-md text-sm text-gray-900 break-words whitespace-normal">
+                  <ExpandableText>
+                    <ExpandableTextContent>
+                      {valueset.description}
+                    </ExpandableTextContent>
+                    <ExpandableTextExpandButton>
+                      {t("read_more")}
+                    </ExpandableTextExpandButton>
+                  </ExpandableText>
                 </TableCell>
                 <TableCell className="whitespace-nowrap px-6 py-4 text-sm">
                   <Button
@@ -305,12 +303,12 @@ export function ValueSetList() {
   });
   const { data: response, isLoading } = useQuery({
     queryKey: ["valuesets", qParams],
-    queryFn: query(valuesetApi.list, {
+    queryFn: query.debounced(valueSetApi.list, {
       queryParams: {
         limit: resultsPerPage,
         offset: ((qParams.page ?? 1) - 1) * resultsPerPage,
         name: qParams.name,
-        status: qParams.status || "active",
+        status: qParams.status || ValueSetStatus.ACTIVE,
       },
     }),
   });
@@ -334,22 +332,19 @@ export function ValueSetList() {
             >
               <div className="min-w-[480px]">
                 <TabsList className="flex w-full">
-                  <TabsTrigger value="active" className="flex-1">
-                    <FileCheckIcon className="size-4" />
-                    {t("active")}
-                  </TabsTrigger>
-                  <TabsTrigger value="draft" className="flex-1">
-                    <NotepadTextDashedIcon className="size-4" />
-                    {t("draft")}
-                  </TabsTrigger>
-                  <TabsTrigger value="retired" className="flex-1">
-                    <ArchiveIcon className="size-4" />
-                    {t("retired")}
-                  </TabsTrigger>
-                  <TabsTrigger value="unknown" className="flex-1">
-                    <HelpCircle className="size-4" />
-                    {t("unknown")}
-                  </TabsTrigger>
+                  {valuesOf(ValueSetStatus).map((status) => {
+                    const IconComponent = VALUESET_STATUS_ICONS[status];
+                    return (
+                      <TabsTrigger
+                        key={status}
+                        value={status}
+                        className="flex-1"
+                      >
+                        <IconComponent className="size-4" />
+                        {t(status)}
+                      </TabsTrigger>
+                    );
+                  })}
                 </TabsList>
               </div>
             </Tabs>

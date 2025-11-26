@@ -9,6 +9,7 @@ import * as z from "zod";
 
 import CareIcon from "@/CAREUI/icons/CareIcon";
 
+import RadioInput from "@/components/ui/RadioInput";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import Autocomplete from "@/components/ui/autocomplete";
 import { Button } from "@/components/ui/button";
@@ -23,7 +24,6 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { PhoneInput } from "@/components/ui/phone-input";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Select,
   SelectContent,
@@ -41,17 +41,21 @@ import UserSelector from "@/components/Common/UserSelector";
 import useAppHistory from "@/hooks/useAppHistory";
 import useAuthUser from "@/hooks/useAuthUser";
 
-import { RESOURCE_STATUS_CHOICES } from "@/common/constants";
-import { RESOURCE_CATEGORY_CHOICES } from "@/common/constants";
-
-import routes from "@/Utils/request/api";
 import mutate from "@/Utils/request/mutate";
 import query from "@/Utils/request/query";
-import { mergeAutocompleteOptions } from "@/Utils/utils";
+import { mergeAutocompleteOptions, valuesOf } from "@/Utils/utils";
 import validators from "@/Utils/validators";
-import facilityApi from "@/types/facility/facilityApi";
-import { ResourceRequest } from "@/types/resourceRequest/resourceRequest";
-import { UserBase } from "@/types/user/user";
+import patientApi from "@/types/emr/patient/patientApi";
+import publicFacilityApi from "@/types/facility/publicFacilityApi";
+import {
+  getResourceRequestCategoryEnum,
+  RESOURCE_REQUEST_STATUS_OPTIONS,
+  ResourceRequestCategory,
+  ResourceRequestRead,
+  ResourceRequestStatus,
+} from "@/types/resourceRequest/resourceRequest";
+import resourceRequestApi from "@/types/resourceRequest/resourceRequestApi";
+import { UserReadMinimal } from "@/types/user/user";
 
 interface ResourceProps {
   facilityId: number;
@@ -63,19 +67,24 @@ export default function ResourceForm({ facilityId, id }: ResourceProps) {
   const { goBack } = useAppHistory();
   const { t } = useTranslation();
   const [{ related_patient }] = useQueryParams();
-  const [assignedToUser, setAssignedToUser] = useState<UserBase>();
+  const [assignedToUser, setAssignedToUser] = useState<UserReadMinimal>();
   const authUser = useAuthUser();
 
   const resourceFormSchema = z.object({
-    status: z.string().min(1, { message: t("field_required") }),
-    category: z.string().min(1, { message: t("field_required") }),
-    assigned_facility: z.object({
-      id: z.string(),
-      name: z.string(),
-    }),
+    status: z.nativeEnum(ResourceRequestStatus),
+    category: z.nativeEnum(ResourceRequestCategory),
+    assigned_facility: z
+      .object({
+        id: z.string(),
+        name: z.string(),
+      })
+      .nullable(),
     emergency: z.enum(["true", "false"]),
     title: z.string().min(1, { message: t("field_required") }),
-    reason: z.string().min(1, { message: t("field_required") }),
+    reason: z
+      .string()
+      .trim()
+      .min(1, { message: t("field_required") }),
     referring_facility_contact_name: z
       .string()
       .min(1, { message: t("field_required") }),
@@ -88,7 +97,7 @@ export default function ResourceForm({ facilityId, id }: ResourceProps) {
 
   const { data: patientData } = useQuery({
     queryKey: ["patient", related_patient],
-    queryFn: query(routes.patient.getPatient, {
+    queryFn: query(patientApi.getPatient, {
       pathParams: { id: String(related_patient) },
     }),
     enabled: !!related_patient,
@@ -96,8 +105,8 @@ export default function ResourceForm({ facilityId, id }: ResourceProps) {
 
   const { data: resourceData } = useQuery({
     queryKey: ["resource_request", id],
-    queryFn: query(routes.getResourceDetails, {
-      pathParams: { id: String(id) },
+    queryFn: query(resourceRequestApi.get, {
+      pathParams: { resourceRequestId: String(id) },
     }),
     enabled: !!id,
   });
@@ -105,9 +114,7 @@ export default function ResourceForm({ facilityId, id }: ResourceProps) {
   const form = useForm({
     resolver: zodResolver(resourceFormSchema),
     defaultValues: {
-      status: "pending",
-      category: "",
-      assigned_facility: undefined,
+      status: ResourceRequestStatus.PENDING,
       assigned_to: "",
       emergency: "false" as const,
       title: "",
@@ -122,7 +129,7 @@ export default function ResourceForm({ facilityId, id }: ResourceProps) {
     if (resourceData) {
       form.reset({
         status: resourceData.status,
-        category: resourceData.category,
+        category: getResourceRequestCategoryEnum(resourceData.category),
         assigned_facility: resourceData.assigned_facility,
         assigned_to: resourceData.assigned_to?.id,
         emergency: resourceData.emergency ? "true" : "false",
@@ -143,18 +150,18 @@ export default function ResourceForm({ facilityId, id }: ResourceProps) {
   }, [resourceData, form]);
 
   const { mutate: createResource, isPending } = useMutation({
-    mutationFn: mutate(routes.createResource),
-    onSuccess: (data: ResourceRequest) => {
+    mutationFn: mutate(resourceRequestApi.create),
+    onSuccess: (data: ResourceRequestRead) => {
       toast.success(t("resource_created_successfully"));
       navigate(`/facility/${facilityId}/resource/${data.id}`);
     },
   });
 
   const { mutate: updateResource, isPending: isUpdatePending } = useMutation({
-    mutationFn: mutate(routes.updateResource, {
-      pathParams: { id: String(id) },
+    mutationFn: mutate(resourceRequestApi.update, {
+      pathParams: { resourceRequestId: String(id) },
     }),
-    onSuccess: (data: ResourceRequest) => {
+    onSuccess: (data: ResourceRequestRead) => {
       toast.success(t("resource_updated_successfully"));
       navigate(`/facility/${facilityId}/resource/${data.id}`);
     },
@@ -165,7 +172,7 @@ export default function ResourceForm({ facilityId, id }: ResourceProps) {
       status: data.status,
       category: data.category,
       origin_facility: String(facilityId),
-      assigned_facility: data.assigned_facility?.id,
+      assigned_facility: data.assigned_facility?.id || null,
       assigned_to: assignedToUser?.id || null,
       approving_facility: null,
       emergency: data.emergency === "true",
@@ -178,14 +185,14 @@ export default function ResourceForm({ facilityId, id }: ResourceProps) {
     };
 
     if (id) {
-      updateResource({ ...resourcePayload, id });
+      updateResource({ ...resourcePayload });
     } else {
       createResource(resourcePayload);
     }
   };
   const { data: facilities } = useQuery({
     queryKey: ["facilities", facilitySearch],
-    queryFn: query.debounced(facilityApi.getAllFacilities, {
+    queryFn: query.debounced(publicFacilityApi.getAll, {
       queryParams: {
         search_text: facilitySearch ? facilitySearch : undefined,
         limit: 50,
@@ -198,7 +205,7 @@ export default function ResourceForm({ facilityId, id }: ResourceProps) {
     value: facility.id,
   }));
 
-  const handleUserChange = (user: UserBase) => {
+  const handleUserChange = (user: UserReadMinimal) => {
     form.setValue("assigned_to", user.id, { shouldDirty: true });
     setAssignedToUser(user);
   };
@@ -207,13 +214,19 @@ export default function ResourceForm({ facilityId, id }: ResourceProps) {
     form.setValue(
       "referring_facility_contact_name",
       `${authUser.first_name} ${authUser.last_name}`.trim(),
-      { shouldDirty: true },
+      {
+        shouldDirty: true,
+        shouldValidate: true,
+      },
     );
     if (authUser.phone_number) {
       form.setValue(
         "referring_facility_contact_number",
         authUser.phone_number,
-        { shouldDirty: true },
+        {
+          shouldDirty: true,
+          shouldValidate: true,
+        },
       );
     }
   };
@@ -270,7 +283,8 @@ export default function ResourceForm({ facilityId, id }: ResourceProps) {
                     </FormLabel>
                     <FormControl>
                       <Autocomplete
-                        data-cy="select-facility"
+                        {...field}
+                        showClearButton={!id}
                         options={mergeAutocompleteOptions(
                           facilityOptions ?? [],
                           field.value
@@ -290,6 +304,7 @@ export default function ResourceForm({ facilityId, id }: ResourceProps) {
                           if (facility) {
                             form.setValue("assigned_facility", facility, {
                               shouldDirty: true,
+                              shouldValidate: true,
                             });
                           } else {
                             form.resetField("assigned_facility");
@@ -315,31 +330,17 @@ export default function ResourceForm({ facilityId, id }: ResourceProps) {
                 control={form.control}
                 name="emergency"
                 render={({ field }) => (
-                  <FormItem className="space-y-3">
+                  <FormItem>
                     <FormLabel>{t("is_this_an_emergency")}</FormLabel>
                     <FormControl>
-                      <RadioGroup
+                      <RadioInput
+                        {...field}
                         onValueChange={field.onChange}
-                        value={field.value}
-                        className="flex gap-4"
-                      >
-                        <FormItem className="flex">
-                          <FormControl>
-                            <RadioGroupItem value="true" />
-                          </FormControl>
-                          <FormLabel className="font-normal">
-                            {t("yes")}
-                          </FormLabel>
-                        </FormItem>
-                        <FormItem className="flex">
-                          <FormControl>
-                            <RadioGroupItem value="false" />
-                          </FormControl>
-                          <FormLabel className="font-normal">
-                            {t("no")}
-                          </FormLabel>
-                        </FormItem>
-                      </RadioGroup>
+                        options={[
+                          { value: "true", label: t("yes") },
+                          { value: "false", label: t("no") },
+                        ]}
+                      />
                     </FormControl>
                     <FormDescription>
                       {t("emergency_description")}
@@ -357,14 +358,14 @@ export default function ResourceForm({ facilityId, id }: ResourceProps) {
                     <FormLabel aria-required>{t("status")}</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
-                        <SelectTrigger data-cy="select-status-dropdown">
+                        <SelectTrigger ref={field.ref}>
                           <SelectValue placeholder={t("select_status")} />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {RESOURCE_STATUS_CHOICES.map((option, index) => (
-                          <SelectItem key={index} value={option.text}>
-                            {t(`resource_status__${option.text}`)}
+                        {RESOURCE_REQUEST_STATUS_OPTIONS.map((option) => (
+                          <SelectItem key={option.text} value={option.text}>
+                            {t(`resource_request_status__${option.text}`)}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -382,16 +383,16 @@ export default function ResourceForm({ facilityId, id }: ResourceProps) {
                     <FormLabel aria-required>{t("category")}</FormLabel>
                     <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
-                        <SelectTrigger data-cy="select-category-dropdown">
+                        <SelectTrigger ref={field.ref}>
                           <SelectValue
                             placeholder={t("category_description")}
                           />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {RESOURCE_CATEGORY_CHOICES.map((category) => (
-                          <SelectItem key={category.id} value={category.id}>
-                            {category.text}
+                        {valuesOf(ResourceRequestCategory).map((category) => (
+                          <SelectItem key={category} value={category}>
+                            {t(`resource_request_category__${category}`)}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -442,7 +443,6 @@ export default function ResourceForm({ facilityId, id }: ResourceProps) {
                   <FormLabel aria-required>{t("request_title")}</FormLabel>
                   <FormControl>
                     <Input
-                      data-cy="title-input"
                       {...field}
                       placeholder={t("request_title_placeholder")}
                       onChange={(value) => field.onChange(value)}
@@ -465,7 +465,6 @@ export default function ResourceForm({ facilityId, id }: ResourceProps) {
                   <FormControl>
                     <Textarea
                       {...field}
-                      data-cy="reason-input"
                       placeholder={t("request_reason_placeholder")}
                       onChange={(value) => field.onChange(value)}
                     />
@@ -496,7 +495,6 @@ export default function ResourceForm({ facilityId, id }: ResourceProps) {
                 variant="outline"
                 onClick={fillMyDetails}
                 className="shrink-0"
-                data-cy="fill_my_details_button"
               >
                 <CareIcon icon="l-user" className="mr-2 size-4" />
                 {t("fill_my_details")}
@@ -514,7 +512,6 @@ export default function ResourceForm({ facilityId, id }: ResourceProps) {
                       <Input
                         {...field}
                         onChange={(value) => field.onChange(value)}
-                        data-cy="contact_person"
                       />
                     </FormControl>
                     <FormDescription>
@@ -534,7 +531,6 @@ export default function ResourceForm({ facilityId, id }: ResourceProps) {
                     <FormControl>
                       <PhoneInput
                         {...field}
-                        data-cy="contact_person_phone"
                         onChange={(value) => field.onChange(value)}
                       />
                     </FormControl>

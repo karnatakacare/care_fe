@@ -43,12 +43,14 @@ export default function OrganizationUsers({ id, navOrganizationId }: Props) {
       type: "text" as const,
       placeholder: t("search_by_username"),
       value: qParams.name || "",
+      display: t("username"),
     },
     {
       key: "phone_number",
       type: "phone" as const,
       placeholder: t("search_by_phone_number"),
       value: qParams.phone_number || "",
+      display: t("phone_number"),
     },
   ];
 
@@ -149,7 +151,6 @@ export default function OrganizationUsers({ id, navOrganizationId }: Props) {
                 onSearch={handleSearch}
                 onFieldChange={handleFieldChange}
                 className="w-full"
-                data-cy="search-user"
               />
             </div>
             {isFetchingUsers ? (
@@ -157,7 +158,7 @@ export default function OrganizationUsers({ id, navOrganizationId }: Props) {
                 <CardGridSkeleton count={6} />
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
                 {users?.results?.length === 0 ? (
                   <Card className="col-span-full">
                     <CardContent className="p-6 text-center text-gray-500">

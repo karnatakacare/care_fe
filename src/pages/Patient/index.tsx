@@ -15,9 +15,12 @@ import { CardListSkeleton } from "@/components/Common/SkeletonLoading";
 import { usePatientContext } from "@/hooks/usePatientUser";
 
 import query from "@/Utils/request/query";
-import { formatName } from "@/Utils/utils";
 import PublicAppointmentApi from "@/types/scheduling/PublicAppointmentApi";
-import { Appointment } from "@/types/scheduling/schedule";
+import {
+  APPOINTMENT_STATUS_COLORS,
+  PublicAppointment,
+  formatScheduleResourceName,
+} from "@/types/scheduling/schedule";
 
 import AppointmentDialog from "./components/AppointmentDialog";
 
@@ -25,7 +28,7 @@ function PatientIndex() {
   const { t } = useTranslation();
 
   const [selectedAppointment, setSelectedAppointment] = useState<
-    Appointment | undefined
+    PublicAppointment | undefined
   >();
   const [appointmentDialogOpen, setAppointmentDialogOpen] = useState(false);
 
@@ -46,24 +49,6 @@ function PatientIndex() {
     }),
     enabled: !!tokenData?.token,
   });
-
-  const getStatusChip = (status: string) => {
-    return (
-      <Badge
-        variant={
-          status === "checked_in"
-            ? "secondary"
-            : status === "booked"
-              ? "primary"
-              : status === "cancelled"
-                ? "destructive"
-                : "default"
-        }
-      >
-        {t(status)}
-      </Badge>
-    );
-  };
 
   if (isLoading) {
     return (
@@ -96,7 +81,7 @@ function PatientIndex() {
     dayjs().isBefore(dayjs(appointment.token_slot.start_datetime)),
   );
 
-  const getAppointmentCard = (appointment: Appointment) => {
+  const getAppointmentCard = (appointment: PublicAppointment) => {
     const appointmentTime = dayjs(appointment.token_slot.start_datetime);
     const appointmentDate = appointmentTime.format("DD MMMM YYYY");
     const appointmentTimeSlot = appointmentTime.format("hh:mm a");
@@ -105,11 +90,11 @@ function PatientIndex() {
         <CardHeader className="px-6 pb-3 bg-secondary-200 flex flex-col md:flex-row justify-between">
           <CardTitle>
             <div className="flex flex-col">
-              <span className="text-xs font-medium">{t("practitioner")}: </span>
+              <span className="text-xs font-medium">
+                {t(appointment.resource_type, { count: 1 })}:{" "}
+              </span>
               <span className="text-sm">
-                {appointment?.user
-                  ? formatName(appointment.user)
-                  : "Resource from BE"}
+                {formatScheduleResourceName(appointment)}
               </span>
             </div>
           </CardTitle>
@@ -140,7 +125,13 @@ function PatientIndex() {
               </div>
               <div className="flex flex-col gap-0 items-start md:flex-none">
                 <span className="text-xs font-medium">{t("status")}: </span>
-                <span>{getStatusChip(appointment.status)}</span>
+                <span>
+                  <Badge
+                    variant={APPOINTMENT_STATUS_COLORS[appointment.status]}
+                  >
+                    {t(appointment.status)}
+                  </Badge>
+                </span>
               </div>
             </div>
             <div className="flex flex-row gap-3 justify-between md:flex-none">
@@ -160,7 +151,7 @@ function PatientIndex() {
   };
 
   const getAppointmentCardContent = (
-    appointments: Appointment[] | undefined,
+    appointments: PublicAppointment[] | undefined,
   ) => {
     return (
       <div className="grid gap-4 mb-2">

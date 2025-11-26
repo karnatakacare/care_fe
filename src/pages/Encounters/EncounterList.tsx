@@ -1,51 +1,53 @@
 import { useQuery } from "@tanstack/react-query";
-import { useCallback } from "react";
+import { useEffect } from "react";
 import { useTranslation } from "react-i18next";
-
-import { cn } from "@/lib/utils";
 
 import CareIcon from "@/CAREUI/icons/CareIcon";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+  dateFilter,
+  encounterPriorityFilter,
+  encounterStatusFilter,
+  tagFilter,
+} from "@/components/ui/multi-filter/filterConfigs";
+import MultiFilter from "@/components/ui/multi-filter/MultiFilter";
+import useMultiFilterState from "@/components/ui/multi-filter/utils/useMultiFilterState";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  FilterDateRange,
+  longDateRangeOptions,
+} from "@/components/ui/multi-filter/utils/Utils";
 import { Separator } from "@/components/ui/separator";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import Page from "@/components/Common/Page";
-import SearchInput from "@/components/Common/SearchInput";
 import { CardGridSkeleton } from "@/components/Common/SkeletonLoading";
 import EncounterInfoCard from "@/components/Encounter/EncounterInfoCard";
 
 import useFilters from "@/hooks/useFilters";
 
-import routes from "@/Utils/request/api";
+import PatientIdentifierFilter from "@/components/Patient/PatientIdentifierFilter";
+import { EncounterClass, EncounterRead } from "@/types/emr/encounter/encounter";
+import encounterApi from "@/types/emr/encounter/encounterApi";
+import { TagConfig, TagResource } from "@/types/emr/tagConfig/tagConfig";
+import useTagConfigs from "@/types/emr/tagConfig/useTagConfig";
 import query from "@/Utils/request/query";
-import { PaginatedResponse } from "@/Utils/request/types";
-import { Encounter, EncounterPriority } from "@/types/emr/encounter";
+import { dateQueryString, dateTimeQueryString } from "@/Utils/utils";
+import careConfig from "@careConfig";
+import { subDays } from "date-fns";
 
 interface EncounterListProps {
-  encounters?: Encounter[];
+  encounters?: EncounterRead[];
   facilityId: string;
+  encounterClass?: EncounterClass;
 }
 
 const buildQueryParams = (
   facilityId: string,
   status?: string,
-  encounterClass?: string,
   priority?: string,
+  created_date_after?: string,
+  created_date_before?: string,
 ) => {
   const params: Record<string, string | undefined> = {};
   if (facilityId) {
@@ -56,24 +58,35 @@ const buildQueryParams = (
   } else if (status) {
     params.status = status;
   }
-  if (encounterClass) {
-    params.encounter_class = encounterClass;
-  }
   if (priority) {
     params.priority = priority;
+  }
+  if (created_date_after) {
+    // Convert date string to datetime for API call
+    params.created_date_after = dateTimeQueryString(
+      new Date(created_date_after),
+    );
+  }
+  if (created_date_before) {
+    // Convert date string to datetime for API call (end of day)
+    params.created_date_before = dateTimeQueryString(
+      new Date(created_date_before),
+      true,
+    );
   }
   return params;
 };
 
 function EmptyState() {
+  const { t } = useTranslation();
   return (
     <Card className="flex flex-col items-center justify-center p-8 text-center border-dashed">
       <div className="rounded-full bg-primary/10 p-3 mb-4">
         <CareIcon icon="l-folder-open" className="size-6 text-primary" />
       </div>
-      <h3 className="text-lg font-semibold mb-1">No encounters found</h3>
+      <h3 className="text-lg font-semibold mb-1">{t("no_encounters_found")}</h3>
       <p className="text-sm text-gray-500 mb-4">
-        Try adjusting your filters or create a new encounter
+        {t("no_encounters_found_description")}
       </p>
     </Card>
   );
@@ -82,64 +95,54 @@ function EmptyState() {
 export function EncounterList({
   encounters: propEncounters,
   facilityId,
+  encounterClass,
 }: EncounterListProps) {
   const { qParams, updateQuery, Pagination, resultsPerPage } = useFilters({
     limit: 15,
-    cacheBlacklist: ["name", "encounter_id", "external_identifier"],
+    cacheBlacklist: [
+      "encounter_id",
+      "external_identifier",
+      "tags",
+      "patient_filter",
+    ],
   });
   const { t } = useTranslation();
   const {
     status,
-    encounter_class: encounterClass,
     priority,
-    name,
     encounter_id,
     external_identifier,
+    patient_filter,
+    created_date_after,
+    created_date_before,
   } = qParams;
-  const handleFieldChange = () => {
-    updateQuery({
-      status,
-      encounter_class: encounterClass,
-      priority,
-      name: undefined,
-      encounter_id: undefined,
-      external_identifier: undefined,
-    });
-  };
 
-  const handleSearch = useCallback(
-    (key: string, value: string) => {
-      updateQuery({
-        ...{
-          status,
-          encounter_class: encounterClass,
-          priority,
-        },
-        [key]: value || undefined,
-      });
-    },
-    [status, encounterClass, priority, updateQuery],
-  );
-
-  const { data: queryEncounters, isLoading } = useQuery<
-    PaginatedResponse<Encounter>
-  >({
-    queryKey: ["encounters", facilityId, qParams],
-    queryFn: query.debounced(routes.encounter.list, {
+  const { data: queryEncounters, isFetching } = useQuery({
+    queryKey: ["encounters", facilityId, qParams, encounterClass],
+    queryFn: query.debounced(encounterApi.list, {
       queryParams: {
-        ...buildQueryParams(facilityId, status, encounterClass, priority),
-        name,
+        ...buildQueryParams(
+          facilityId,
+          status,
+          priority,
+          created_date_after,
+          created_date_before,
+        ),
+        encounter_class: encounterClass,
         external_identifier,
         limit: resultsPerPage,
         offset: ((qParams.page || 1) - 1) * resultsPerPage,
+        tags: qParams.tags,
+        tags_behavior: qParams.tags_behavior,
+        patient_filter: patient_filter,
       },
     }),
     enabled: !propEncounters && !encounter_id,
   });
 
-  const { data: queryEncounter } = useQuery<Encounter>({
+  const { data: queryEncounter } = useQuery({
     queryKey: ["encounter", encounter_id],
-    queryFn: query(routes.encounter.get, {
+    queryFn: query(encounterApi.get, {
       pathParams: { id: encounter_id },
       queryParams: {
         facility: facilityId,
@@ -147,41 +150,102 @@ export function EncounterList({
     }),
     enabled: !!encounter_id,
   });
-  const searchOptions = [
-    {
-      key: "name",
-      type: "text" as const,
-      placeholder: t("search_by_patient_name"),
-      value: name || "",
-    },
-    {
-      key: "encounter_id",
-      type: "text" as const,
-      placeholder: t("search_by_encounter_id"),
-      value: encounter_id || "",
-    },
-    {
-      key: "external_identifier",
-      type: "text" as const,
-      placeholder: t("search_by_external_id"),
-      value: external_identifier || "",
-    },
-  ];
 
   const encounters =
     propEncounters ||
     queryEncounters?.results ||
     (queryEncounter ? [queryEncounter] : []);
 
+  const tagIds = qParams.tags?.split(",") || [];
+  const tagQueries = useTagConfigs({ ids: tagIds, facilityId });
+  const selectedTags = tagQueries
+    .map((query) => query.data)
+    .filter(Boolean) as TagConfig[];
+
+  useEffect(() => {
+    // Set default date range if no dates are present
+    if (!created_date_after && !created_date_before) {
+      const today = new Date();
+      const defaultDays = careConfig.encounterDateFilter;
+      if (defaultDays === 0) {
+        // Today only
+        updateQuery({
+          created_date_after: dateQueryString(today),
+          created_date_before: dateQueryString(today),
+        });
+      } else {
+        updateQuery({
+          created_date_after: dateQueryString(subDays(today, defaultDays)),
+          created_date_before: dateQueryString(today),
+        });
+      }
+    }
+  }, [created_date_after, created_date_before, updateQuery]);
+
+  const filters = [
+    encounterStatusFilter("status"),
+    encounterPriorityFilter("priority"),
+    tagFilter("tags", TagResource.ENCOUNTER, "multi", t("tags", { count: 2 })),
+    dateFilter("created_date", t("date"), longDateRangeOptions, true),
+  ];
+
+  const onFilterUpdate = (query: Record<string, unknown>) => {
+    for (const [key, value] of Object.entries(query)) {
+      switch (key) {
+        case "tags":
+          query.tags = (value as TagConfig[])?.map((tag) => tag.id).join(",");
+          break;
+        case "tags_behavior":
+          // tags_behavior is already handled by the filter system
+          break;
+        case "created_date":
+          {
+            const dateRange = value as FilterDateRange;
+            query = {
+              ...query,
+              created_date: undefined,
+              created_date_after: dateRange?.from
+                ? dateQueryString(dateRange?.from as Date)
+                : undefined,
+              created_date_before: dateRange?.to
+                ? dateQueryString(dateRange?.to as Date)
+                : undefined,
+            };
+          }
+          break;
+      }
+    }
+    updateQuery(query);
+  };
+
+  const {
+    selectedFilters,
+    handleFilterChange,
+    handleOperationChange,
+    handleClearAll,
+    handleClearFilter,
+  } = useMultiFilterState(filters, onFilterUpdate, {
+    ...qParams,
+    tags: selectedTags,
+    created_date:
+      created_date_after || created_date_before
+        ? {
+            from: created_date_after ? new Date(created_date_after) : undefined,
+            to: created_date_before ? new Date(created_date_before) : undefined,
+          }
+        : undefined,
+  });
+
   return (
     <Page
-      title={t("encounters")}
+      title={t("encounter_class_encounters", {
+        encounterClassName: encounterClass
+          ? t(`encounter_class__${encounterClass}`)
+          : t("all"),
+      })}
       componentRight={
-        <Badge
-          className="bg-purple-50 text-purple-700 ml-2 text-sm font-medium rounded-xl px-3 m-3 w-max"
-          variant="outline"
-        >
-          {isLoading
+        <Badge className="bg-purple-50 text-purple-700 ml-2 rounded-xl px-3 py-0.5 m-3 w-max border-gray-200">
+          {isFetching
             ? t("loading")
             : t("entity_count", {
                 count: queryEncounters?.count ?? 0,
@@ -191,450 +255,42 @@ export function EncounterList({
       }
     >
       <div className="space-y-4 mt-4 flex flex-col">
-        <div className="rounded-lg border border-gray-200 bg-card shadow-xs flex flex-col">
+        <div className="rounded-lg border border-gray-200 bg-card shadow-xs flex flex-col overflow-auto">
           <div className="flex flex-col">
             <div className="flex flex-wrap items-center justify-between gap-2 p-4">
               <div className="flex flex-wrap items-center gap-2">
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      data-cy="search-encounter"
-                      variant="outline"
-                      size="sm"
-                      className={cn(
-                        "h-8 min-w-[120px] justify-start",
-                        (name || encounter_id || external_identifier) &&
-                          "bg-primary/10 text-primary hover:bg-primary/20",
-                      )}
-                    >
-                      <CareIcon icon="l-search" className="mr-2 size-4" />
-                      {name || encounter_id || external_identifier ? (
-                        <span className="truncate">
-                          {name || encounter_id || external_identifier}
-                        </span>
-                      ) : (
-                        t("search")
-                      )}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    className="w-[20rem] p-3 border-none"
-                    align="start"
-                    onEscapeKeyDown={(event) => event.preventDefault()}
-                  >
-                    <div className="space-y-4">
-                      <h4 className="font-medium leading-none">
-                        {t("search_encounters")}
-                      </h4>
-                      <SearchInput
-                        data-cy="encounter-search"
-                        options={searchOptions}
-                        onFieldChange={handleFieldChange}
-                        onSearch={handleSearch}
-                        className="w-full border-none shadow-none"
-                        autoFocus
-                      />
-                    </div>
-                  </PopoverContent>
-                </Popover>
-
-                <Select
-                  value={priority || "all"}
-                  onValueChange={(value) => {
+                <PatientIdentifierFilter
+                  onSelect={(patientId, patientName) =>
                     updateQuery({
-                      status,
-                      encounter_class: encounterClass,
-                      priority:
-                        value === "all"
-                          ? undefined
-                          : (value as EncounterPriority),
-                    });
-                  }}
-                >
-                  <SelectTrigger className="h-8 w-[120px]">
-                    <SelectValue placeholder={t("priority")} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Priorities</SelectItem>
-                    <SelectItem value="asap">
-                      <div className="flex items-center">
-                        <span className="mr-2">🟡</span> ASAP
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="callback_results">
-                      <div className="flex items-center">
-                        <span className="mr-2">🔵</span> Callback Results
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="callback_for_scheduling">
-                      <div className="flex items-center">
-                        <span className="mr-2">🟣</span> Callback for Scheduling
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="elective">
-                      <div className="flex items-center">
-                        <span className="mr-2">🟤</span> Elective
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="emergency">
-                      <div className="flex items-center">
-                        <span className="mr-2">🔴</span> Emergency
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="preop">
-                      <div className="flex items-center">
-                        <span className="mr-2">🟠</span> Pre-op
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="as_needed">
-                      <div className="flex items-center">
-                        <span className="mr-2">⚫️</span> As Needed
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="routine">
-                      <div className="flex items-center">
-                        <span className="mr-2">⚪️</span> Routine
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="rush_reporting">
-                      <div className="flex items-center">
-                        <span className="mr-2">🟤</span> Rush Reporting
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="stat">
-                      <div className="flex items-center">
-                        <span className="mr-2">🔴</span> Stat
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="timing_critical">
-                      <div className="flex items-center">
-                        <span className="mr-2">🟡</span> Timing Critical
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="use_as_directed">
-                      <div className="flex items-center">
-                        <span className="mr-2">🔵</span> Use as Directed
-                      </div>
-                    </SelectItem>
-                    <SelectItem value="urgent">
-                      <div className="flex items-center">
-                        <span className="mr-2">🟠</span> Urgent
-                      </div>
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-
-                {/* Status Filter - Mobile */}
-                <div className="md:hidden">
-                  <Select
-                    value={status || "all"}
-                    onValueChange={(value) => {
-                      updateQuery({
-                        ...{ encounter_class: encounterClass, priority },
-                        status: value === "all" ? undefined : value,
-                      });
-                    }}
-                  >
-                    <SelectTrigger className="h-8 w-[120px]">
-                      <SelectValue placeholder="Status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Status</SelectItem>
-                      <SelectItem value="planned">
-                        <div className="flex items-center">
-                          <CareIcon icon="l-calender" className="mr-2 size-4" />
-                          Planned
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="in_progress">
-                        <div className="flex items-center">
-                          <CareIcon icon="l-spinner" className="mr-2 size-4" />
-                          In Progress
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="completed">
-                        <div className="flex items-center">
-                          <CareIcon icon="l-check" className="mr-2 size-4" />
-                          Completed
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="cancelled">
-                        <div className="flex items-center">
-                          <CareIcon icon="l-x" className="mr-2 size-4" />
-                          Cancelled
-                        </div>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Class Filter - Mobile */}
-                <div className="md:hidden">
-                  <Select
-                    value={encounterClass || "all"}
-                    onValueChange={(value) => {
-                      updateQuery({
-                        status,
-                        priority,
-                        encounter_class: value === "all" ? undefined : value,
-                      });
-                    }}
-                  >
-                    <SelectTrigger className="h-8 w-[120px]">
-                      <SelectValue placeholder="Type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Types</SelectItem>
-                      <SelectItem value="imp">
-                        <div className="flex items-center">
-                          <CareIcon icon="l-hospital" className="mr-2 size-4" />
-                          Inpatient
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="amb">
-                        <div className="flex items-center">
-                          <CareIcon icon="l-user" className="mr-2 size-4" />
-                          Ambulatory
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="obsenc">
-                        <div className="flex items-center">
-                          <CareIcon icon="l-eye" className="mr-2 size-4" />
-                          Observation
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="emer">
-                        <div className="flex items-center">
-                          <CareIcon
-                            icon="l-ambulance"
-                            className="mr-2 size-4"
-                          />
-                          Emergency
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="vr">
-                        <div className="flex items-center">
-                          <CareIcon icon="l-video" className="mr-2 size-4" />
-                          Virtual
-                        </div>
-                      </SelectItem>
-                      <SelectItem value="hh">
-                        <div className="flex items-center">
-                          <CareIcon icon="l-home" className="mr-2 size-4" />
-                          Home Health
-                        </div>
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              {/* Status Filter - Desktop */}
-              <div className="hidden md:flex items-center">
-                <Tabs value={status || "all"} className="w-full">
-                  <TabsList className="bg-transparent p-0 h-8">
-                    <div className="flex flex-wrap">
-                      <TabsTrigger
-                        value="all"
-                        className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
-                        onClick={() =>
-                          updateQuery({
-                            ...{ encounter_class: encounterClass, priority },
-                            status: undefined,
-                          })
-                        }
-                      >
-                        {t("all_status")}
-                      </TabsTrigger>
-                      <TabsTrigger
-                        data-cy="planned-filter"
-                        value="planned"
-                        className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
-                        onClick={() =>
-                          updateQuery({
-                            ...{ encounter_class: encounterClass, priority },
-                            status: "planned",
-                          })
-                        }
-                      >
-                        <CareIcon icon="l-calender" className="size-4" />
-                        {t("encounter_status__planned")}
-                      </TabsTrigger>
-                      <TabsTrigger
-                        data-cy="in-progress-filter"
-                        value="in_progress"
-                        className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
-                        onClick={() =>
-                          updateQuery({
-                            ...{ encounter_class: encounterClass, priority },
-                            status: "in_progress",
-                          })
-                        }
-                      >
-                        <CareIcon icon="l-spinner" className="size-4" />
-                        {t("encounter_class__in_progress")}
-                      </TabsTrigger>
-                      <TabsTrigger
-                        value="discharged"
-                        className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
-                        onClick={() =>
-                          updateQuery({
-                            ...{ encounter_class: encounterClass, priority },
-                            status: "discharged",
-                          })
-                        }
-                      >
-                        <CareIcon icon="l-home" className="size-4" />
-                        {t("discharge")}
-                      </TabsTrigger>
-                      <TabsTrigger
-                        value="completed"
-                        className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
-                        onClick={() =>
-                          updateQuery({
-                            ...{ encounter_class: encounterClass, priority },
-                            status: "completed",
-                          })
-                        }
-                      >
-                        <CareIcon icon="l-check" className="size-4" />
-                        {t("completed")}
-                      </TabsTrigger>
-                      <TabsTrigger
-                        value="cancelled"
-                        className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
-                        onClick={() =>
-                          updateQuery({
-                            ...{ encounter_class: encounterClass, priority },
-                            status: "cancelled",
-                          })
-                        }
-                      >
-                        <CareIcon icon="l-x" className="size-4" />
-                        {t("cancelled")}
-                      </TabsTrigger>
-                    </div>
-                  </TabsList>
-                </Tabs>
+                      patient_filter: patientId,
+                      patient_name: patientName,
+                    })
+                  }
+                  placeholder={t("filter_by_identifier")}
+                  className="w-full sm:w-auto rounded-md h-9 text-gray-500 shadow-sm"
+                  patientId={qParams.patient_filter}
+                  patientName={qParams.patient_name}
+                />
+                <MultiFilter
+                  selectedFilters={selectedFilters}
+                  onFilterChange={handleFilterChange}
+                  onOperationChange={handleOperationChange}
+                  onClearAll={handleClearAll}
+                  onClearFilter={handleClearFilter}
+                  className="flex sm:flex-row flex-wrap sm:items-center"
+                  triggerButtonClassName="self-start sm:self-center"
+                  clearAllButtonClassName="self-center"
+                  facilityId={facilityId}
+                />
               </div>
             </div>
 
             <Separator className="hidden md:block" />
-
-            {/* Class Filter - Desktop */}
-            <div className="hidden md:block p-4">
-              <Tabs value={encounterClass || "all"} className="w-full">
-                <TabsList className="bg-transparent p-0 h-8">
-                  <div className="flex flex-wrap">
-                    <TabsTrigger
-                      value="all"
-                      className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
-                      onClick={() =>
-                        updateQuery({
-                          status,
-                          priority,
-                          encounter_class: undefined,
-                        })
-                      }
-                    >
-                      {t("all_types")}
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="imp"
-                      className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
-                      onClick={() =>
-                        updateQuery({
-                          status,
-                          priority,
-                          encounter_class: "imp",
-                        })
-                      }
-                    >
-                      <CareIcon icon="l-hospital" className="size-4" />
-                      {t("encounter_class__imp")}
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="amb"
-                      className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
-                      onClick={() =>
-                        updateQuery({
-                          status,
-                          priority,
-                          encounter_class: "amb",
-                        })
-                      }
-                    >
-                      <CareIcon icon="l-user" className="size-4" />
-                      {t("encounter_class__amb")}
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="obsenc"
-                      className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
-                      onClick={() =>
-                        updateQuery({
-                          status,
-                          priority,
-                          encounter_class: "obsenc",
-                        })
-                      }
-                    >
-                      <CareIcon icon="l-eye" className="size-4" />
-                      {t("encounter_class__obsenc")}
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="emer"
-                      className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
-                      onClick={() =>
-                        updateQuery({
-                          status,
-                          priority,
-                          encounter_class: "emer",
-                        })
-                      }
-                    >
-                      <CareIcon icon="l-ambulance" className="size-4" />
-                      {t("emergency")}
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="vr"
-                      className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
-                      onClick={() =>
-                        updateQuery({
-                          status,
-                          priority,
-                          encounter_class: "vr",
-                        })
-                      }
-                    >
-                      <CareIcon icon="l-video" className="size-4" />
-                      {t("encounter_class__vr")}
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="hh"
-                      className="data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
-                      onClick={() =>
-                        updateQuery({
-                          status,
-                          priority,
-                          encounter_class: "hh",
-                        })
-                      }
-                    >
-                      <CareIcon icon="l-home" className="size-4" />
-                      {t("encounter_class__hh")}
-                    </TabsTrigger>
-                  </div>
-                </TabsList>
-              </Tabs>
-            </div>
           </div>
         </div>
 
-        <div
-          className="grid gap-4 sm:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3"
-          data-cy="encounter-list-cards"
-        >
-          {isLoading ? (
+        <div className="grid gap-4 sm:grid-cols-1 lg:grid-cols-2 xl:grid-cols-3">
+          {isFetching ? (
             <CardGridSkeleton count={6} />
           ) : encounters.length === 0 ? (
             <div className="col-span-full">
@@ -642,7 +298,7 @@ export function EncounterList({
             </div>
           ) : (
             <>
-              {encounters.map((encounter: Encounter) => (
+              {encounters.map((encounter: EncounterRead) => (
                 <EncounterInfoCard
                   key={encounter.id}
                   encounter={encounter}

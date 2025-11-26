@@ -6,6 +6,8 @@
   "ignoreUnimported": [
     "src/Locale/update_locale.js",
     "src/PluginRegistry.ts",
+    "src/components/ui/definition-list.tsx",
+    "src/pages/Admin/organizations/components/AdminOrganizationSelector.tsx",
     "src/pages/Encounters/ReportBuilder/ReportBuilderSheet.tsx",
     "src/pluginTypes.ts",
     "src/service-worker.ts"
@@ -16,9 +18,16 @@
     "@tailwindcss/vite",
     "@vitejs/plugin-react",
     "browserslist-useragent-regexp",
-    "cross-env"
+    "cross-env",
+    "normalize-wheel"
   ],
   "ignoreUnresolved": [
+    [
+      "__federation__",
+      [
+        "src/PluginEngine.tsx"
+      ]
+    ],
     [
       "./pluginMap",
       [
@@ -29,6 +38,13 @@
       "@/supportedBrowsers",
       [
         "src/components/ErrorPages/BrowserWarning.tsx"
+      ]
+    ],
+    [
+      "supports-color",
+      [
+        "node_modules/debug/src/node.js",
+        "node_modules/require-and-forget/node_modules/debug/src/node.js"
       ]
     ],
     [
@@ -53,12 +69,6 @@
       ]
     ],
     [
-      "tsx/cjs",
-      [
-        "node_modules/find-cypress-specs/src/index.js"
-      ]
-    ],
-    [
       "virtual:pwa-register",
       [
         "src/index.tsx"
@@ -70,7 +80,6 @@
     "src/index.tsx",
     "vite.config.mts",
     "tailwind.config.js",
-    "cypress.config.ts",
     "scripts/**"
   ]
 }

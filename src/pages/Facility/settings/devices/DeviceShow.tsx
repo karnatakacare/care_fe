@@ -1,27 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDate } from "date-fns";
-import { ExternalLink } from "lucide-react";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, ExternalLink } from "lucide-react";
 import { Link, navigate } from "raviger";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
-
-import { cn } from "@/lib/utils";
 
 import CareIcon from "@/CAREUI/icons/CareIcon";
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -31,6 +18,7 @@ import {
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 
+import ConfirmActionDialog from "@/components/Common/ConfirmActionDialog";
 import ErrorBoundary from "@/components/Common/ErrorBoundary";
 import Loading from "@/components/Common/Loading";
 import PageTitle from "@/components/Common/PageTitle";
@@ -41,7 +29,10 @@ import query from "@/Utils/request/query";
 import DeviceTypeIcon from "@/pages/Facility/settings/devices/components/DeviceTypeIcon";
 import { usePluginDevice } from "@/pages/Facility/settings/devices/hooks/usePluginDevices";
 import { ContactPoint } from "@/types/common/contactPoint";
-import { type DeviceDetail } from "@/types/device/device";
+import {
+  DEVICE_AVAILABILITY_STATUS_COLORS,
+  type DeviceDetail,
+} from "@/types/device/device";
 import deviceApi from "@/types/device/deviceApi";
 
 import DeviceEncounterHistory from "./DeviceEncounterHistory";
@@ -56,6 +47,8 @@ interface Props {
 export default function DeviceShow({ facilityId, deviceId }: Props) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   const { data: device, isLoading } = useQuery({
     queryKey: ["device", facilityId, deviceId],
@@ -81,33 +74,6 @@ export default function DeviceShow({ facilityId, deviceId }: Props) {
   if (!device) {
     return null;
   }
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "active":
-        return "bg-green-100 text-green-800 hover:bg-green-100/80";
-      case "inactive":
-        return "bg-gray-100 text-gray-800 hover:bg-gray-100/80";
-      case "entered_in_error":
-        return "bg-red-100 text-red-800 hover:bg-red-100/80";
-      default:
-        return "bg-gray-100 text-gray-800 hover:bg-gray-100/80";
-    }
-  };
-
-  const getAvailabilityStatusColor = (status: string) => {
-    switch (status) {
-      case "available":
-        return "bg-green-100 text-green-800 hover:bg-green-100/80";
-      case "lost":
-        return "bg-yellow-100 text-yellow-800 hover:bg-yellow-100/80";
-      case "damaged":
-      case "destroyed":
-        return "bg-red-100 text-red-800 hover:bg-red-100/80";
-      default:
-        return "bg-gray-100 text-gray-800 hover:bg-gray-100/80";
-    }
-  };
 
   const renderContactInfo = (contact: ContactPoint) => {
     const getContactLink = (system: string, value: string) => {
@@ -149,24 +115,24 @@ export default function DeviceShow({ facilityId, deviceId }: Props) {
 
   return (
     <div className="flex flex-col gap-2 max-w-4xl mx-auto">
-      <div className="ml-2 flex gap-3 items-center">
-        <DeviceTypeIcon
-          type={device.care_type}
-          className="size-5 mb-1 md:mb-3"
-        />
-        <PageTitle title={device.registered_name} />
+      <div className="ml-2 flex gap-3 items-start">
+        <div className="mt-2">
+          <DeviceTypeIcon type={device.care_type} className="size-5 " />
+        </div>
+        <div>
+          <PageTitle
+            title={device.registered_name}
+            className="text-lg font-semibold break-all"
+          />
+        </div>
       </div>
 
-      <div className="flex flex-col gap-4 xl:gap-6" data-cy="device-details">
+      <div className="flex flex-col gap-4 xl:gap-6">
         <Card>
           <CardHeader className="flex flex-row justify-between items-center">
             <CardTitle>{t("device_information")}</CardTitle>
             <Link href={`/devices/${deviceId}/edit`}>
-              <Button
-                variant="outline_primary"
-                size="sm"
-                data-cy="edit-device-button"
-              >
+              <Button variant="outline_primary" size="sm">
                 <CareIcon icon="l-pen" className="size-4" />
                 {t("edit")}
               </Button>
@@ -179,7 +145,7 @@ export default function DeviceShow({ facilityId, deviceId }: Props) {
                   <h4 className="text-sm font-medium text-gray-500">
                     {t("registered_name")}
                   </h4>
-                  <p className="mt-1">{device.registered_name}</p>
+                  <p className="mt-1 break-all">{device.registered_name}</p>
                 </div>
                 <div>
                   <h4 className="text-sm font-medium text-gray-500">
@@ -309,16 +275,16 @@ export default function DeviceShow({ facilityId, deviceId }: Props) {
 
               <div className="flex flex-wrap gap-2">
                 <Badge
-                  variant="secondary"
-                  className={getStatusColor(device.status)}
+                  variant={DEVICE_AVAILABILITY_STATUS_COLORS[device.status]}
                 >
                   {t(`device_status_${device.status}`)}
                 </Badge>
                 <Badge
-                  variant="secondary"
-                  className={getAvailabilityStatusColor(
-                    device.availability_status,
-                  )}
+                  variant={
+                    DEVICE_AVAILABILITY_STATUS_COLORS[
+                      device.availability_status
+                    ]
+                  }
                 >
                   {t(
                     `device_availability_status_${device.availability_status}`,
@@ -452,38 +418,23 @@ export default function DeviceShow({ facilityId, deviceId }: Props) {
                   {t("delete_device_description")}
                 </p>
               </div>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button
-                    variant="destructive"
-                    data-cy="delete-device-button"
-                    className="w-fit"
-                  >
-                    {t("delete")}
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>{t("delete_device")}</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      {t("delete_device_confirmation")}
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel data-cy="cancel-delete-device-button">
-                      {t("cancel")}
-                    </AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={() => deleteDevice()}
-                      className={cn(buttonVariants({ variant: "destructive" }))}
-                      disabled={isDeleting}
-                      data-cy="confirm-delete-device-button"
-                    >
-                      {isDeleting ? t("deleting") : t("delete")}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+              <Button
+                variant="destructive"
+                className="w-fit"
+                onClick={() => setShowDeleteDialog(true)}
+              >
+                {t("delete")}
+              </Button>
+              <ConfirmActionDialog
+                open={showDeleteDialog}
+                onOpenChange={setShowDeleteDialog}
+                title={t("delete_device")}
+                description={t("delete_device_confirmation")}
+                variant="destructive"
+                confirmText={isDeleting ? t("deleting") : t("delete")}
+                disabled={isDeleting}
+                onConfirm={() => deleteDevice()}
+              />
             </div>
           </CardContent>
         </Card>

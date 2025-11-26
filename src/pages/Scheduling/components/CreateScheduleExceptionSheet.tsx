@@ -34,12 +34,13 @@ import {
 import mutate from "@/Utils/request/mutate";
 import { Time } from "@/Utils/types";
 import { dateQueryString } from "@/Utils/utils";
-import { useIsUserSchedulableResource } from "@/pages/Scheduling/useIsUserSchedulableResource";
+import { SchedulableResourceType } from "@/types/scheduling/schedule";
 import scheduleApis from "@/types/scheduling/scheduleApi";
 
 interface Props {
   facilityId: string;
-  userId: string;
+  resourceType: SchedulableResourceType;
+  resourceId: string;
   trigger?: React.ReactNode;
 }
 
@@ -51,7 +52,8 @@ type QueryParams = {
 
 export default function CreateScheduleExceptionSheet({
   facilityId,
-  userId,
+  resourceType,
+  resourceId,
   trigger,
 }: Props) {
   const { t } = useTranslation();
@@ -144,22 +146,21 @@ export default function CreateScheduleExceptionSheet({
 
   const { mutate: createException, isPending } = useMutation({
     mutationFn: mutate(scheduleApis.exceptions.create, {
-      pathParams: { facility_id: facilityId },
+      pathParams: { facilityId },
     }),
     onSuccess: () => {
       toast.success(t("exception_created"));
       setQParams({ sheet: null, valid_from: null, valid_to: null });
       form.reset();
       queryClient.invalidateQueries({
-        queryKey: ["user-schedule-exceptions", { facilityId, userId }],
+        queryKey: [
+          "scheduleExceptions",
+          facilityId,
+          { resourceType, resourceId },
+        ],
       });
     },
   });
-
-  const { data: isSchedulableResource } = useIsUserSchedulableResource(
-    facilityId,
-    userId,
-  );
 
   const unavailableAllDay = form.watch("unavailable_all_day");
 
@@ -167,6 +168,7 @@ export default function CreateScheduleExceptionSheet({
     if (unavailableAllDay) {
       form.setValue("start_time", "00:00");
       form.setValue("end_time", "23:59");
+      form.clearErrors(["start_time", "end_time"]);
     } else {
       form.resetField("start_time");
       form.resetField("end_time");
@@ -180,7 +182,8 @@ export default function CreateScheduleExceptionSheet({
       valid_to: dateQueryString(data.valid_to),
       start_time: data.start_time,
       end_time: data.end_time,
-      user: userId,
+      resource_type: resourceType,
+      resource_id: resourceId,
     });
   }
 
@@ -197,10 +200,7 @@ export default function CreateScheduleExceptionSheet({
     >
       <SheetTrigger asChild>
         {trigger ?? (
-          <Button
-            variant="primary"
-            disabled={isPending || !isSchedulableResource}
-          >
+          <Button variant="primary" disabled={isPending}>
             {t("add_exception")}
           </Button>
         )}
@@ -247,6 +247,9 @@ export default function CreateScheduleExceptionSheet({
                         <DatePicker
                           date={field.value}
                           onChange={(date) => field.onChange(date)}
+                          disabled={(date) =>
+                            dayjs(date).isBefore(dayjs(), "day")
+                          }
                         />
                         <FormMessage />
                       </FormItem>
@@ -262,6 +265,9 @@ export default function CreateScheduleExceptionSheet({
                         <DatePicker
                           date={field.value}
                           onChange={(date) => field.onChange(date)}
+                          disabled={(date) =>
+                            dayjs(date).isBefore(dayjs(), "day")
+                          }
                         />
                         <FormMessage />
                       </FormItem>
@@ -298,6 +304,7 @@ export default function CreateScheduleExceptionSheet({
                           <Input
                             type="time"
                             {...field}
+                            value={field.value || ""}
                             disabled={unavailableAllDay}
                           />
                         </FormControl>
@@ -316,6 +323,7 @@ export default function CreateScheduleExceptionSheet({
                           <Input
                             type="time"
                             {...field}
+                            value={field.value || ""}
                             disabled={unavailableAllDay}
                           />
                         </FormControl>

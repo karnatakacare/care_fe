@@ -12,6 +12,7 @@ import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -46,23 +47,25 @@ import {
 } from "@/components/ui/table";
 
 import { HistoricalRecordSelector } from "@/components/HistoricalRecordSelector";
-import { EntitySelectionSheet } from "@/components/Questionnaire/EntitySelectionSheet";
+import { EntitySelectionDrawer } from "@/components/Questionnaire/EntitySelectionDrawer";
 import ValueSetSelect from "@/components/Questionnaire/ValueSetSelect";
 
 import useBreakpoints from "@/hooks/useBreakpoints";
 
 import query from "@/Utils/request/query";
 import { dateQueryString, formatName } from "@/Utils/utils";
+import { Code } from "@/types/base/code/code";
 import {
   DIAGNOSIS_CLINICAL_STATUS,
+  DIAGNOSIS_SEVERITY,
   DIAGNOSIS_VERIFICATION_STATUS,
   Diagnosis,
   DiagnosisClinicalStatus,
   DiagnosisRequest,
+  DiagnosisSeverity,
   Onset,
 } from "@/types/emr/diagnosis/diagnosis";
 import diagnosisApi from "@/types/emr/diagnosis/diagnosisApi";
-import { Code } from "@/types/questionnaire/code";
 import {
   QuestionnaireResponse,
   ResponseValue,
@@ -84,30 +87,39 @@ const DIAGNOSIS_INITIAL_VALUE: Omit<DiagnosisRequest, "encounter"> = {
   code: { code: "", display: "", system: "" },
   clinical_status: "active",
   verification_status: "confirmed",
+  severity: "moderate",
   category: "encounter_diagnosis",
-  onset: { onset_datetime: new Date().toISOString().split("T")[0] },
+  onset: { onset_datetime: dateQueryString(new Date()) },
   dirty: true,
 };
 
-function DiagnosisDatePicker({
-  onsetDatetime,
-  onChange,
+function DiagnosisSeveritySelect({
+  severity,
+  onValueChange,
   disabled,
-  hasId,
 }: {
-  onsetDatetime?: string;
-  onChange: (date: Date | undefined) => void;
+  severity: DiagnosisSeverity | null;
+  onValueChange: (value: DiagnosisSeverity) => void;
   disabled?: boolean;
-  hasId: boolean;
 }) {
+  const { t } = useTranslation();
   return (
-    <CombinedDatePicker
-      value={onsetDatetime ? new Date(onsetDatetime) : undefined}
-      onChange={onChange}
-      dateFormat="P"
-      disabled={disabled || hasId}
-      buttonClassName="h-8 md:h-9 w-full justify-start font-normal"
-    />
+    <Select
+      value={severity ?? undefined}
+      onValueChange={(value) => onValueChange(value as DiagnosisSeverity)}
+      disabled={disabled}
+    >
+      <SelectTrigger className="h-8 md:h-9">
+        <SelectValue placeholder={t("choose_severity")} />
+      </SelectTrigger>
+      <SelectContent>
+        {DIAGNOSIS_SEVERITY.map((severity) => (
+          <SelectItem key={severity} value={severity}>
+            {t(severity)}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -146,10 +158,12 @@ function ClinicalStatusSelect({
 function VerificationStatusSelect({
   status,
   onValueChange,
+  isExistingRecord,
   disabled,
 }: {
   status: string;
   onValueChange: (value: string) => void;
+  isExistingRecord?: boolean;
   disabled?: boolean;
 }) {
   const { t } = useTranslation();
@@ -165,11 +179,14 @@ function VerificationStatusSelect({
         />
       </SelectTrigger>
       <SelectContent>
-        {DIAGNOSIS_VERIFICATION_STATUS.map((status) => (
-          <SelectItem key={status} value={status} className="capitalize">
-            {t(status)}
-          </SelectItem>
-        ))}
+        {DIAGNOSIS_VERIFICATION_STATUS.map(
+          (status) =>
+            (isExistingRecord || status !== "entered_in_error") && (
+              <SelectItem key={status} value={status} className="capitalize">
+                {t(status)}
+              </SelectItem>
+            ),
+        )}
       </SelectContent>
     </Select>
   );
@@ -210,16 +227,21 @@ function DiagnosisDetailsForm({
   return (
     <div className="flex flex-col gap-4">
       <div className="space-y-2">
-        <Label className="text-sm">{t("date")}</Label>
-        <DiagnosisDatePicker
-          onsetDatetime={diagnosis.onset?.onset_datetime}
+        <Label className="text-sm">{t("onset_date")}</Label>
+        <CombinedDatePicker
+          value={
+            diagnosis.onset?.onset_datetime
+              ? new Date(diagnosis.onset.onset_datetime)
+              : undefined
+          }
           onChange={(date) =>
             onUpdate({
               onset: { onset_datetime: dateQueryString(date) },
             })
           }
-          disabled={disabled}
-          hasId={!!diagnosis.id}
+          disabled={disabled || !!diagnosis.id}
+          blockDate={(date) => date > new Date()}
+          buttonClassName="h-8 md:h-9 w-full justify-start font-normal"
         />
       </div>
       <div className="space-y-2">
@@ -244,6 +266,15 @@ function DiagnosisDetailsForm({
                 value as DiagnosisRequest["verification_status"],
             })
           }
+          isExistingRecord={!!diagnosis.id}
+          disabled={disabled}
+        />
+      </div>
+      <div className="space-y-2">
+        <Label className="text-sm">{t("severity")}</Label>
+        <DiagnosisSeveritySelect
+          severity={diagnosis.severity ?? null}
+          onValueChange={(value) => onUpdate({ severity: value })}
           disabled={disabled}
         />
       </div>
@@ -265,6 +296,7 @@ function convertToDiagnosisRequest(diagnosis: Diagnosis): DiagnosisRequest {
     code: diagnosis.code,
     clinical_status: diagnosis.clinical_status,
     verification_status: diagnosis.verification_status,
+    severity: diagnosis.severity,
     onset: diagnosis.onset
       ? {
           ...diagnosis.onset,
@@ -320,7 +352,7 @@ export function DiagnosisQuestion({
   );
   const [newDiagnosis, setNewDiagnosis] = useState<Partial<DiagnosisRequest>>({
     ...DIAGNOSIS_INITIAL_VALUE,
-    onset: { onset_datetime: new Date().toISOString().split("T")[0] },
+    onset: { onset_datetime: dateQueryString(new Date()) },
   });
   const [showDiagnosisSelection, setShowDiagnosisSelection] = useState(false);
   const isMobile = useBreakpoints({ default: true, md: false });
@@ -339,7 +371,6 @@ export function DiagnosisQuestion({
       return dateA.getTime() - dateB.getTime();
     });
   }, [questionnaireResponse.values]);
-
   const { data: patientDiagnoses } = useQuery({
     queryKey: ["diagnoses", patientId, encounterId],
     queryFn: query(diagnosisApi.listDiagnosis, {
@@ -348,7 +379,6 @@ export function DiagnosisQuestion({
         encounter: encounterId,
         limit: 100,
         category: "encounter_diagnosis,chronic_condition",
-        exclude_verification_status: "entered_in_error",
       },
     }),
     enabled: !isPreview,
@@ -408,7 +438,7 @@ export function DiagnosisQuestion({
     setShowDiagnosisSelection(false);
     setNewDiagnosis({
       ...DIAGNOSIS_INITIAL_VALUE,
-      onset: { onset_datetime: new Date().toISOString().split("T")[0] },
+      onset: { onset_datetime: dateQueryString(new Date()) },
     });
   };
 
@@ -492,6 +522,7 @@ export function DiagnosisQuestion({
       ...sortedDiagnoses,
       ...nonDuplicateDiagnoses.map(({ id: _id, ...diagnosis }) => ({
         ...diagnosis,
+        severity: diagnosis.severity ?? "moderate",
         dirty: true,
       })),
     ];
@@ -502,8 +533,14 @@ export function DiagnosisQuestion({
   };
 
   return (
-    <div className="space-y-4">
+    <div
+      className={cn(
+        "space-y-4",
+        sortedDiagnoses.length > 0 ? "md:max-w-fit" : "max-w-4xl",
+      )}
+    >
       <HistoricalRecordSelector<DiagnosisRequest>
+        title={t("diagnosis_history")}
         structuredTypes={[
           {
             type: t("diagnoses"),
@@ -528,6 +565,12 @@ export function DiagnosisQuestion({
                     : "",
               },
               {
+                key: "severity",
+                label: t("severity"),
+                render: (severity: DiagnosisSeverity | null) =>
+                  severity ? t(severity) : "-",
+              },
+              {
                 key: "note",
                 label: t("notes"),
                 render: (note: string | undefined) => note || "-",
@@ -546,7 +589,6 @@ export function DiagnosisQuestion({
                   offset,
                   limit,
                   exclude_verification_status: "entered_in_error",
-                  ordering: "-created_date",
                   category: "encounter_diagnosis,chronic_condition",
                 },
               })({ signal: new AbortController().signal });
@@ -556,6 +598,7 @@ export function DiagnosisQuestion({
         ]}
         buttonLabel={t("diagnosis_history")}
         onAddSelected={handleAddHistoricalDiagnoses}
+        disableAPI={isPreview}
       />
 
       {sortedDiagnoses.length > 0 && (
@@ -567,10 +610,13 @@ export function DiagnosisQuestion({
                 <TableRow className="bg-gray-50">
                   <TableHead className="w-[30%]">{t("diagnosis")}</TableHead>
                   <TableHead className="w-[15%] text-center">
-                    {t("date")}
+                    {t("onset_date")}
                   </TableHead>
                   <TableHead className="w-[15%] text-center">
                     {t("status")}
+                  </TableHead>
+                  <TableHead className="w-[15%] text-center">
+                    {t("severity")}
                   </TableHead>
                   <TableHead className="w-[15%] text-center">
                     {t("verification")}
@@ -588,7 +634,11 @@ export function DiagnosisQuestion({
                       `diagnosis-${diagnosis.code.code}-${index}`
                     }
                     diagnosis={diagnosis}
-                    disabled={disabled}
+                    disabled={
+                      disabled ||
+                      patientDiagnoses?.results[index]?.verification_status ===
+                        "entered_in_error"
+                    }
                     onUpdate={(updates) =>
                       handleUpdateDiagnosis(index, updates)
                     }
@@ -607,7 +657,11 @@ export function DiagnosisQuestion({
                   diagnosis.id || `diagnosis-${diagnosis.code.code}-${index}`
                 }
                 diagnosis={diagnosis}
-                disabled={disabled}
+                disabled={
+                  disabled ||
+                  patientDiagnoses?.results[index]?.verification_status ===
+                    "entered_in_error"
+                }
                 onUpdate={(updates) => handleUpdateDiagnosis(index, updates)}
                 onRemove={() => handleRemoveDiagnosis(index)}
               />
@@ -617,7 +671,7 @@ export function DiagnosisQuestion({
       )}
 
       {isMobile ? (
-        <EntitySelectionSheet
+        <EntitySelectionDrawer
           open={showDiagnosisSelection}
           onOpenChange={setShowDiagnosisSelection}
           system="system-condition-code"
@@ -627,16 +681,14 @@ export function DiagnosisQuestion({
           onConfirm={handleConfirmDiagnosis}
           placeholder={addDiagnosisPlaceholder}
         >
-          <div className="space-y-4 p-3">
-            <DiagnosisDetailsForm
-              diagnosis={newDiagnosis}
-              onUpdate={(updates) =>
-                setNewDiagnosis((prev) => ({ ...prev, ...updates }))
-              }
-              disabled={disabled}
-            />
-          </div>
-        </EntitySelectionSheet>
+          <DiagnosisDetailsForm
+            diagnosis={newDiagnosis}
+            onUpdate={(updates) =>
+              setNewDiagnosis((prev) => ({ ...prev, ...updates }))
+            }
+            disabled={disabled}
+          />
+        </EntitySelectionDrawer>
       ) : (
         <ValueSetSelect
           system="system-condition-code"
@@ -666,12 +718,7 @@ const DiagnosisTableRow = ({
   const { t } = useTranslation();
   return (
     <>
-      <TableRow
-        className={cn(
-          diagnosis.verification_status === "entered_in_error" &&
-            "opacity-40 pointer-events-none",
-        )}
-      >
+      <TableRow className={cn(disabled && "opacity-40 pointer-events-none")}>
         <TableCell className="py-1">
           <div className="flex items-center space-x-2 min-w-0">
             <div
@@ -686,13 +733,20 @@ const DiagnosisTableRow = ({
           </div>
         </TableCell>
         <TableCell className="py-1">
-          <DiagnosisDatePicker
-            onsetDatetime={diagnosis.onset?.onset_datetime}
-            onChange={(date) =>
-              onUpdate?.({ onset: { onset_datetime: dateQueryString(date) } })
+          <CombinedDatePicker
+            value={
+              diagnosis.onset?.onset_datetime
+                ? new Date(diagnosis.onset.onset_datetime)
+                : undefined
             }
-            disabled={disabled}
-            hasId={!!diagnosis.id}
+            onChange={(date) =>
+              onUpdate?.({
+                onset: { onset_datetime: dateQueryString(date) },
+              })
+            }
+            disabled={disabled || !!diagnosis.id}
+            blockDate={(date) => date > new Date()}
+            buttonClassName="h-8 md:h-9 w-full justify-start font-normal"
           />
         </TableCell>
         <TableCell className="py-1">
@@ -707,6 +761,13 @@ const DiagnosisTableRow = ({
           />
         </TableCell>
         <TableCell className="py-1">
+          <DiagnosisSeveritySelect
+            severity={diagnosis.severity}
+            onValueChange={(value) => onUpdate?.({ severity: value })}
+            disabled={disabled}
+          />
+        </TableCell>
+        <TableCell className="py-1">
           <VerificationStatusSelect
             status={diagnosis.verification_status}
             onValueChange={(value) =>
@@ -715,6 +776,7 @@ const DiagnosisTableRow = ({
                   value as DiagnosisRequest["verification_status"],
               })
             }
+            isExistingRecord={!!diagnosis.id}
             disabled={disabled}
           />
         </TableCell>
@@ -778,12 +840,7 @@ const DiagnosisItem: React.FC<DiagnosisItemProps> = ({
   );
   const { t } = useTranslation();
   return (
-    <div
-      className={cn("group hover:bg-gray-50", {
-        "opacity-40 pointer-events-none":
-          diagnosis.verification_status === "entered_in_error",
-      })}
-    >
+    <div className="group hover:bg-gray-50">
       {/* Mobile View - Card Layout */}
       <Card
         className={cn("mb-2 rounded-lg", {
@@ -856,18 +913,28 @@ const DiagnosisItem: React.FC<DiagnosisItemProps> = ({
                   </div>
                 </div>
                 {!isOpen && (
-                  <div className="text-sm text-gray-500">
-                    {t("diagnosed_on")}{" "}
-                    {diagnosis.onset?.onset_datetime
-                      ? format(
-                          new Date(diagnosis.onset.onset_datetime),
-                          "MMMM d, yyyy",
-                        )
-                      : ""}
-                    {" · "}
-                    {t(diagnosis.clinical_status)}
-                    {" · "}
-                    {t(diagnosis.verification_status)}
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-gray-500">
+                    <span>
+                      {t("diagnosed_on")}{" "}
+                      {diagnosis.onset?.onset_datetime
+                        ? format(
+                            new Date(diagnosis.onset.onset_datetime),
+                            "MMMM d, yyyy",
+                          )
+                        : ""}
+                    </span>
+                    <span className="text-gray-300">|</span>
+                    <span>{t(diagnosis.clinical_status)}</span>
+                    <span className="text-gray-300">|</span>
+                    <span>{t(diagnosis.verification_status)}</span>
+                    {diagnosis.severity && (
+                      <>
+                        <span className="text-gray-300">|</span>
+                        <Badge variant="outline" className="py-0 font-medium">
+                          {t(diagnosis.severity)}
+                        </Badge>
+                      </>
+                    )}
                   </div>
                 )}
               </div>

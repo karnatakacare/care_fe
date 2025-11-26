@@ -1,6 +1,11 @@
-import { CountryCode } from "libphonenumber-js/types.cjs";
+import {
+  ENCOUNTER_CLASS,
+  EncounterClass,
+  EncounterDischargeDisposition,
+} from "@/types/emr/encounter/encounter";
 
-import { EncounterClass } from "@/types/emr/encounter";
+import { NonEmptyArray } from "@/Utils/types";
+import { CountryCode } from "libphonenumber-js/types.cjs";
 
 const env = import.meta.env;
 
@@ -31,15 +36,10 @@ const careConfig = {
   apiUrl: env.REACT_CARE_API_URL,
   sbomBaseUrl: env.REACT_SBOM_BASE_URL || "https://sbom.ohc.network",
   urls: {
-    dashboard: env.REACT_DASHBOARD_URL,
     github: env.REACT_GITHUB_URL || "https://github.com/ohcnetwork",
     ohcn: env.REACT_OHCN_URL || "https://ohc.network?ref=care",
   },
 
-  headerLogo: logo(env.REACT_HEADER_LOGO, {
-    light: "https://cdn.ohc.network/header_logo.png",
-    dark: "https://cdn.ohc.network/header_logo.png",
-  }),
   mainLogo: logo(env.REACT_MAIN_LOGO, {
     light: "/images/care_logo.svg",
     dark: "/images/care_logo.svg",
@@ -51,16 +51,22 @@ const careConfig = {
   availableLocales: (env.REACT_ALLOWED_LOCALES || "")
     .split(",")
     .map((l) => l.trim()),
+  encounterClasses: (env.REACT_ALLOWED_ENCOUNTER_CLASSES?.split(",") ??
+    ENCOUNTER_CLASS) as NonEmptyArray<EncounterClass>,
 
-  defaultEncounterType: (env.REACT_DEFAULT_ENCOUNTER_TYPE ||
-    "hh") as EncounterClass,
+  defaultEncounterType:
+    (env.REACT_DEFAULT_ENCOUNTER_TYPE as EncounterClass) ||
+    (env.REACT_ALLOWED_ENCOUNTER_CLASSES?.split(",").length === 1
+      ? (env.REACT_ALLOWED_ENCOUNTER_CLASSES?.split(",")[0] as EncounterClass)
+      : undefined),
+
+  defaultDischargeDisposition: env.REACT_DEFAULT_DISCHARGE_DISPOSITION as
+    | EncounterDischargeDisposition
+    | undefined,
 
   mapFallbackUrlTemplate:
     env.REACT_MAPS_FALLBACK_URL_TEMPLATE ||
     "https://www.openstreetmap.org/?mlat={lat}&mlon={long}&zoom=15",
-
-  gmapsApiKey:
-    env.REACT_GMAPS_API_KEY || "AIzaSyDsBAc3y7deI5ZO3NtK5GuzKwtUzQNJNUk",
 
   reCaptchaSiteKey: env.REACT_RECAPTCHA_SITE_KEY,
 
@@ -70,8 +76,6 @@ const careConfig = {
       : 5 * 60e3,
   },
 
-  minEncounterDate: new Date(env.REACT_MIN_ENCOUNTER_DATE || "2020-01-01"),
-
   // Plugins related configs...
   sentry: {
     dsn:
@@ -80,13 +84,13 @@ const careConfig = {
     environment: env.REACT_SENTRY_ENVIRONMENT || "staging",
   },
 
-  hcx: {
-    enabled: boolean("REACT_ENABLE_HCX"),
-  },
-
-  abdm: {
-    enabled: boolean("REACT_ENABLE_ABDM", true),
-  },
+  /**
+   * Relative number of days to show in the encounters page by default.
+   * 0 means today.
+   */
+  encounterDateFilter: env.REACT_ENCOUNTER_DEFAULT_DATE_FILTER
+    ? parseInt(env.REACT_ENCOUNTER_DEFAULT_DATE_FILTER)
+    : 0,
 
   appointments: {
     /**
@@ -95,7 +99,7 @@ const careConfig = {
      */
     defaultDateFilter: env.REACT_APPOINTMENTS_DEFAULT_DATE_FILTER
       ? parseInt(env.REACT_APPOINTMENTS_DEFAULT_DATE_FILTER)
-      : 7,
+      : 0,
 
     // Kill switch in-case the heatmap API doesn't scale as expected
     useAvailabilityStatsAPI: boolean(
@@ -103,6 +107,11 @@ const careConfig = {
       true,
     ),
   },
+
+  /**
+   * Flag to make location field mandatory for payment reconciliation
+   */
+  paymentLocationRequired: boolean("REACT_PAYMENT_LOCATION_REQUIRED", true),
 
   careApps: env.REACT_ENABLED_APPS
     ? env.REACT_ENABLED_APPS.split(",").map((app) => {
@@ -147,6 +156,58 @@ const careConfig = {
   imageUploadMaxSizeInMB: env.REACT_APP_MAX_IMAGE_UPLOAD_SIZE_MB
     ? parseInt(env.REACT_APP_MAX_IMAGE_UPLOAD_SIZE_MB, 10)
     : 2,
+
+  /**
+   * Disable patient login if set to "true"
+   */
+  disablePatientLogin: boolean("REACT_DISABLE_PATIENT_LOGIN", false),
+
+  patientRegistration: {
+    /**
+     * Minimum number of geo-organization levels the user must select
+     * during patient registration.
+     *
+     * If not set, all levels are required.
+     */
+    minGeoOrganizationLevelsRequired:
+      env.REACT_PATIENT_REG_MIN_GEO_ORG_LEVELS_REQUIRED
+        ? Math.max(
+            parseInt(env.REACT_PATIENT_REG_MIN_GEO_ORG_LEVELS_REQUIRED, 10),
+            1,
+          )
+        : undefined,
+
+    defaultGeoOrganization: env.REACT_PATIENT_REGISTRATION_DEFAULT_GEO_ORG,
+
+    minimalPatientRegistration: boolean(
+      "REACT_ENABLE_MINIMAL_PATIENT_REGISTRATION",
+      false,
+    ),
+  },
+
+  i18nUrl: env.REACT_CUSTOM_REMOTE_I18N_URL,
+
+  /**
+   * Custom shortcuts configuration from environment variables
+   * Format: JSON string with array of shortcut objects
+   * Each shortcut can have: title, description, href, icon (optional)
+   * Placeholders like {facilityId}, {userId} will be replaced at runtime
+   */
+  customShortcuts: env.REACT_CUSTOM_SHORTCUTS
+    ? JSON.parse(env.REACT_CUSTOM_SHORTCUTS)
+    : [],
+  /**
+   * System identifier for patient phone number configuration
+   */
+  phoneNumberConfigSystem: "system.care.ohc.network/patient-phone-number",
+
+  /**
+   * Enable automatic invoice sheet after dispensing items
+   */
+  enableAutoInvoiceAfterDispense: boolean(
+    "REACT_ENABLE_AUTO_INVOICE_AFTER_DISPENSE",
+    false,
+  ),
 } as const;
 
 export default careConfig;

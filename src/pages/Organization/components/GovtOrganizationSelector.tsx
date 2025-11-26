@@ -14,8 +14,13 @@ interface GovtOrganizationSelectorProps {
   value?: string;
   onChange: (value: string) => void;
   required?: boolean;
+  requiredDepth?: number;
   authToken?: string;
   selected?: Organization[];
+
+  ref?: React.RefCallback<HTMLButtonElement | null>;
+
+  "aria-invalid"?: boolean;
 }
 
 interface OrganizationLevelProps {
@@ -29,6 +34,10 @@ interface OrganizationLevelProps {
   ) => void;
   required?: boolean;
   authToken?: string;
+
+  isError?: boolean;
+
+  ref?: React.RefCallback<HTMLButtonElement | null>;
 }
 
 function OrganizationLevelSelect({
@@ -38,6 +47,8 @@ function OrganizationLevelSelect({
   onChange,
   required,
   authToken,
+  isError,
+  ref,
 }: OrganizationLevelProps) {
   const { t } = useTranslation();
 
@@ -73,37 +84,46 @@ function OrganizationLevelSelect({
       <div className="flex items-center gap-2">
         {isFetching && <Loader2 className="size-6 animate-spin" />}
         <Autocomplete
+          showClearButton={false}
+          aria-invalid={isError}
+          ref={ref}
           value={currentLevel?.id || ""}
           options={options}
           onChange={handleChange}
           onSearch={handleSearch}
-          data-cy={`select-${
-            currentLevel?.metadata?.govt_org_type?.toLowerCase() ||
-            previousLevel?.metadata?.govt_org_children_type?.toLowerCase() ||
-            "state"
-          }`}
         />
       </div>
     </div>
   );
 }
 
-export default function GovtOrganizationSelector(
-  props: GovtOrganizationSelectorProps,
-) {
-  const { onChange, required, selected, authToken } = props;
-  const [selectedLevels, setSelectedLevels] = useState<Organization[]>([]);
+export default function GovtOrganizationSelector({
+  onChange,
+  required,
+  selected,
+  authToken,
+  requiredDepth,
+  ...props
+}: GovtOrganizationSelectorProps) {
+  const [selectedLevels, setSelectedLevels] = useState(selected || []);
 
   useEffect(() => {
+    // Needs the child-most level to be selected to be valid
     if (required && selectedLevels[selectedLevels.length - 1]?.has_children) {
       onChange("");
+      return;
+    }
+
+    if (requiredDepth != null && selectedLevels.length < requiredDepth) {
+      onChange("");
+      return;
     }
   }, [selectedLevels]);
 
   useEffect(() => {
     if (selected && selected.length > 0) {
       let currentOrg = selected[0];
-      if (currentOrg.level_cache === 0) {
+      if (currentOrg?.level_cache === 0) {
         setSelectedLevels(selected);
       } else {
         const levels: Organization[] = [];
@@ -129,6 +149,11 @@ export default function GovtOrganizationSelector(
       });
       if (!required || (required && !organization.has_children)) {
         onChange(organization.id);
+      } else if (
+        requiredDepth != null &&
+        selectedLevels.length >= requiredDepth
+      ) {
+        onChange(organization.id);
       } else {
         onChange("");
       }
@@ -151,7 +176,9 @@ export default function GovtOrganizationSelector(
     <>
       {Array.from({ length: totalLevels }).map((_, index) => (
         <OrganizationLevelSelect
+          isError={props["aria-invalid"] && !selectedLevels[index]}
           key={index}
+          ref={props.ref}
           index={index}
           currentLevel={selectedLevels[index]}
           previousLevel={selectedLevels[index - 1]}

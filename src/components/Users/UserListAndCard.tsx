@@ -16,10 +16,10 @@ import RelativeDateTooltip from "@/components/Common/RelativeDateTooltip";
 import useAuthUser from "@/hooks/useAuthUser";
 
 import { formatName, isUserOnline } from "@/Utils/utils";
-import { UserBase } from "@/types/user/user";
+import { UserReadMinimal } from "@/types/user/user";
 
 interface UserCardProps {
-  user: UserBase;
+  user: UserReadMinimal;
   roleName: string;
   actions?: React.ReactNode;
   facility?: string;
@@ -30,36 +30,29 @@ export const UserStatusIndicator = ({
   addPadding = false,
   className = "",
 }: {
-  user: UserBase;
+  user: UserReadMinimal;
   className?: string;
   addPadding?: boolean;
 }) => {
   const authUser = useAuthUser();
-  const isAuthUser = user.id === authUser.external_id;
+  const isAuthUser = user.id === authUser.id;
   const { t } = useTranslation();
 
   return (
     <span className={cn(addPadding ? "px-3 py-1" : "py-px", className)}>
       {isUserOnline(user) || isAuthUser ? (
-        <Badge variant="outline" className="bg-green-100 whitespace-nowrap">
-          <span className="inline-block size-2 shrink-0 rounded-full bg-green-500 mr-2" />
-          <span className="text-xs text-green-700">{t("online")}</span>
+        <Badge variant="primary" className="whitespace-nowrap">
+          <span className="inline-block size-2 shrink-0 rounded-full bg-green-500" />
+          <span>{t("online")}</span>
         </Badge>
       ) : user.last_login ? (
-        <Badge variant="outline" className="bg-yellow-100 whitespace-nowrap">
-          <span className="inline-block size-2 shrink-0 rounded-full bg-yellow-500 mr-2" />
-
-          <RelativeDateTooltip
-            date={user.last_login}
-            className="text-xs text-yellow-700"
-          />
+        <Badge variant="yellow" className="whitespace-nowrap">
+          <span className="inline-block size-2 shrink-0 rounded-full bg-yellow-500" />
+          <RelativeDateTooltip date={user.last_login} />
         </Badge>
       ) : (
-        <Badge
-          variant="outline"
-          className="bg-gray-100 whitespace-nowrap text-xs text-gray-700"
-        >
-          <span className="inline-block size-2 shrink-0 rounded-full bg-gray-500 mr-2" />
+        <Badge variant="secondary" className="whitespace-nowrap">
+          <span className="inline-block size-2 shrink-0 rounded-full bg-gray-500" />
           <span className="hidden lg:inline">{t("never_logged_in")}</span>
           <span className="lg:hidden">{t("never")}</span>
         </Badge>
@@ -99,9 +92,7 @@ export function UserCard(props: UserCardProps) {
             <div className="mt-4 -ml-12 sm:ml-0 grid grid-cols-2 gap-2 text-sm">
               <div>
                 <div className="text-gray-500">{t("role")}</div>
-                <div className="font-medium truncate" data-cy="user-role">
-                  {roleName}
-                </div>
+                <div className="font-medium truncate">{roleName}</div>
               </div>
               <div>
                 <div className="text-gray-500">{t("phone_number")}</div>
@@ -142,7 +133,7 @@ export function UserCard(props: UserCardProps) {
     </Card>
   );
 }
-export const UserGrid = ({ users }: { users?: UserBase[] }) => {
+export const UserGrid = ({ users }: { users?: UserReadMinimal[] }) => {
   const { facilityId } = usePathParams("/facility/:facilityId/*")!;
 
   return (
@@ -174,7 +165,7 @@ const UserListHeader = () => {
   );
 };
 
-const UserListRow = ({ user }: { user: UserBase }) => {
+const UserListRow = ({ user }: { user: UserReadMinimal }) => {
   const { facilityId } = usePathParams("/facility/:facilityId/*")!;
   const { t } = useTranslation();
 
@@ -231,20 +222,22 @@ const UserListRow = ({ user }: { user: UserBase }) => {
     </tr>
   );
 };
-export const UserList = ({ users }: { users?: UserBase[] }) => {
+export const UserList = ({ users }: { users?: UserReadMinimal[] }) => {
   return (
     <div className="overflow-x-auto rounded-lg border border-gray-200">
       <table className="relative min-w-full divide-y divide-gray-200">
         <UserListHeader />
         <tbody className="divide-y divide-gray-200 bg-white">
-          {users?.map((user) => <UserListRow key={user.id} user={user} />)}
+          {users?.map((user) => (
+            <UserListRow key={user.id} user={user} />
+          ))}
         </tbody>
       </table>
     </div>
   );
 };
 interface UserListAndCardViewProps {
-  users: UserBase[];
+  users: UserReadMinimal[];
   activeTab: "card" | "list";
 }
 

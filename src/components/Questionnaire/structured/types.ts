@@ -1,12 +1,23 @@
 import { StructuredQuestionType } from "@/components/Questionnaire/data/StructuredFormData";
 
+import {
+  ApplyChargeItemDefinitionRequest,
+  ApplyMultipleChargeItemDefinitionRequest,
+} from "@/types/billing/chargeItem/chargeItem";
 import { AllergyIntoleranceRequest } from "@/types/emr/allergyIntolerance/allergyIntolerance";
 import { DiagnosisRequest } from "@/types/emr/diagnosis/diagnosis";
-import { EncounterEditRequest } from "@/types/emr/encounter";
-import { MedicationRequest } from "@/types/emr/medicationRequest";
+import { EncounterEdit } from "@/types/emr/encounter/encounter";
+import {
+  MedicationRequestCreate,
+  MedicationRequestRequest,
+} from "@/types/emr/medicationRequest/medicationRequest";
 import { MedicationStatementRequest } from "@/types/emr/medicationStatement";
+import {
+  ServiceRequestApplyActivityDefinitionForm,
+  ServiceRequestApplyActivityDefinitionSpec,
+} from "@/types/emr/serviceRequest/serviceRequest";
 import { SymptomRequest } from "@/types/emr/symptom/symptom";
-import { FileUploadQuestion } from "@/types/files/files";
+import { FileUploadQuestion } from "@/types/files/file";
 import {
   AppointmentCreateRequest,
   CreateAppointmentQuestion,
@@ -15,29 +26,33 @@ import {
 // Map structured types to their data types
 export interface StructuredDataMap {
   allergy_intolerance: AllergyIntoleranceRequest;
-  medication_request: MedicationRequest;
+  medication_request: MedicationRequestCreate;
   symptom: SymptomRequest;
   diagnosis: DiagnosisRequest;
   medication_statement: MedicationStatementRequest;
-  encounter: EncounterEditRequest;
+  encounter: EncounterEdit;
   appointment: CreateAppointmentQuestion;
   files: FileUploadQuestion;
   time_of_death: string;
+  service_request: ServiceRequestApplyActivityDefinitionForm;
+  charge_item: ApplyChargeItemDefinitionRequest;
 }
 
 // Map structured types to their request types
 export interface StructuredRequestMap {
   allergy_intolerance: { datapoints: AllergyIntoleranceRequest[] };
-  medication_request: { datapoints: MedicationRequest[] };
+  medication_request: { datapoints: MedicationRequestRequest[] };
   symptom: { datapoints: SymptomRequest[] };
   diagnosis: { datapoints: DiagnosisRequest[] };
   medication_statement: { datapoints: MedicationStatementRequest[] };
-  encounter: EncounterEditRequest;
+  encounter: EncounterEdit;
   appointment: AppointmentCreateRequest;
+  service_request: ServiceRequestApplyActivityDefinitionSpec;
   files: FileUploadQuestion;
   time_of_death: {
     deceased_datetime: string;
   };
+  charge_item: ApplyMultipleChargeItemDefinitionRequest;
 }
 
 export type RequestTypeFor<T extends StructuredQuestionType> =

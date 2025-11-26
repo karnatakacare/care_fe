@@ -15,12 +15,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 import { Avatar } from "@/components/Common/Avatar";
-import { UserFacilityModel } from "@/components/Users/models";
 
 import useAuthUser, { useAuthContext } from "@/hooks/useAuthUser";
 import useBreakpoints from "@/hooks/useBreakpoints";
 
 import { formatName } from "@/Utils/utils";
+import { FacilityBareMinimum } from "@/types/facility/facility";
 import { Organization, getOrgLabel } from "@/types/organization/organization";
 
 enum DashboardTabs {
@@ -31,9 +31,9 @@ enum DashboardTabs {
 
 type TabContentProps = {
   tabId: string;
-  tabItems: UserFacilityModel[] | Organization[];
+  tabItems: FacilityBareMinimum[] | Organization[];
   description: string;
-  renderChild: (item: UserFacilityModel | Organization) => React.ReactNode;
+  renderChild: (item: FacilityBareMinimum | Organization) => React.ReactNode;
 };
 
 export default function UserDashboard() {
@@ -69,7 +69,7 @@ export default function UserDashboard() {
         <div className="flex flex-col sm:flex-row items-center gap-4">
           <Avatar
             name={formatName(user)}
-            imageUrl={user.read_profile_picture_url}
+            imageUrl={user.profile_picture_url}
             className="h-14 w-14 md:h-16 md:w-16"
           />
           <div className="space-y-1 text-center sm:text-left">
@@ -88,14 +88,13 @@ export default function UserDashboard() {
             </p>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-col gap-2 w-full sm:flex-row sm:items-center sm:w-auto">
           {user.is_superuser && (
             <Button
               variant="outline"
               size="sm"
-              className="w-full"
+              className="w-auto min-w-max"
               asChild
-              data-cy="admin-dashboard-button"
             >
               <Link
                 href="/admin/questionnaire"
@@ -108,8 +107,13 @@ export default function UserDashboard() {
           )}
 
           {isMobile ? (
-            <>
-              <Button variant="outline" size="sm" className="gap-2" asChild>
+            <div className="flex gap-2 w-full">
+              <Button
+                variant="outline"
+                size="sm"
+                className="flex items-center gap-2 flex-1"
+                asChild
+              >
                 <Link href={`/users/${user.username}`}>
                   <SquarePen className="size-4" />
                   {t("edit_profile")}
@@ -118,28 +122,25 @@ export default function UserDashboard() {
               <Button
                 variant="outline"
                 size="sm"
-                className="gap-2"
+                className="flex items-center gap-2 flex-1"
                 onClick={signOut}
-                data-cy="sign-out-button"
               >
                 <LogOut className="size-4" />
                 {t("sign_out")}
               </Button>
-            </>
+            </div>
           ) : (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button
-                  data-cy="user-dashboard-menu-trigger"
-                  variant="outline"
-                  size="sm"
-                  className="px-2 w-full sm:w-auto"
-                >
+                <Button variant="outline" size="sm" className="w-auto">
                   <CareIcon icon="l-ellipsis-v" className="text-inherit" />
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-40">
-                <DropdownMenuItem className="cursor-pointer flex items-center gap-2 text-xs w-full">
+                <DropdownMenuItem
+                  asChild
+                  className="cursor-pointer flex items-center gap-2 text-xs w-full"
+                >
                   <Link
                     href={`/users/${user.username}`}
                     className="flex items-center gap-2 w-full text-inherit"
@@ -149,7 +150,6 @@ export default function UserDashboard() {
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  data-cy="sign-out-button"
                   className="cursor-pointer flex items-center gap-2 text-xs w-full"
                   onClick={signOut}
                 >
@@ -167,7 +167,6 @@ export default function UserDashboard() {
           <div
             className="flex border-b border-gray-200"
             role="tablist"
-            data-cy="dashboard-sections"
             aria-label="Dashboard Sections"
           >
             {availableTabs.map((tab) => (
@@ -318,11 +317,8 @@ const TabContent = ({
     >
       <p className="text-sm text-gray-800 font-normal px-1">{description}</p>
 
-      <div
-        className="grid gap-3 md:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
-        data-cy={`${tabId}-list`}
-      >
-        {tabItems.map((item: UserFacilityModel | Organization) => {
+      <div className="grid gap-3 md:gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+        {tabItems.map((item: FacilityBareMinimum | Organization) => {
           return renderChild(item);
         })}
       </div>

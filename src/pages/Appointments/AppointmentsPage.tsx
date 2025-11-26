@@ -1,40 +1,30 @@
 import careConfig from "@careConfig";
-import { CaretDownIcon, CheckIcon } from "@radix-ui/react-icons";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  addDays,
-  format,
-  formatDate,
-  isPast,
-  isToday,
-  isTomorrow,
-  isYesterday,
-  subDays,
-} from "date-fns";
-import dayjs from "dayjs";
-import { Edit3Icon } from "lucide-react";
+import { CheckIcon } from "@radix-ui/react-icons";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { addDays, differenceInDays } from "date-fns";
+import { TFunction } from "i18next";
+import { FilterIcon } from "lucide-react";
 import { Link, navigate } from "raviger";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
+import { useInView } from "react-intersection-observer";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
 
 import CareIcon from "@/CAREUI/icons/CareIcon";
 
+import PatientIdentifierFilter from "@/components/Patient/PatientIdentifierFilter";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { CombinedDatePicker } from "@/components/ui/combined-date-picker";
 import {
   Command,
   CommandEmpty,
   CommandGroup,
-  CommandInput,
   CommandItem,
   CommandList,
-  CommandSeparator,
 } from "@/components/ui/command";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   Popover,
@@ -62,42 +52,83 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import Loading from "@/components/Common/Loading";
 import Page from "@/components/Common/Page";
-import { TableSkeleton } from "@/components/Common/SkeletonLoading";
+import {
+  CardListSkeleton,
+  TableSkeleton,
+} from "@/components/Common/SkeletonLoading";
 
 import useAppHistory from "@/hooks/useAppHistory";
-import useAuthUser from "@/hooks/useAuthUser";
 import useFilters, { FilterState } from "@/hooks/useFilters";
 
 import { getPermissions } from "@/common/Permissions";
 
-import routes from "@/Utils/request/api";
-import mutate from "@/Utils/request/mutate";
+import { usePermissions } from "@/context/PermissionContext";
+import useCurrentFacility from "@/pages/Facility/utils/useCurrentFacility";
+import { TagConfig, TagResource } from "@/types/emr/tagConfig/tagConfig";
+import useTagConfigs from "@/types/emr/tagConfig/useTagConfig";
+import {
+  Appointment,
+  APPOINTMENT_STATUS_COLORS,
+  AppointmentRead,
+  AppointmentStatus,
+  CancelledAppointmentStatuses,
+  formatScheduleResourceName,
+  SchedulableResourceType,
+} from "@/types/scheduling/schedule";
+import scheduleApis from "@/types/scheduling/scheduleApi";
 import query from "@/Utils/request/query";
 import { useView } from "@/Utils/useView";
 import {
   dateQueryString,
   formatDateTime,
-  formatName,
   formatPatientAge,
 } from "@/Utils/utils";
-import { usePermissions } from "@/context/PermissionContext";
-import { PractitionerSelector } from "@/pages/Appointments/components/PractitionerSelector";
-import {
-  formatSlotTimeRange,
-  groupSlotsByAvailability,
-} from "@/pages/Appointments/utils";
-import { getFakeTokenNumber } from "@/pages/Scheduling/utils";
-import {
-  Appointment,
-  AppointmentStatuses,
-  TokenSlot,
-} from "@/types/scheduling/schedule";
-import scheduleApis from "@/types/scheduling/scheduleApi";
 
-interface DateRangeDisplayProps {
-  dateFrom: string | null;
-  dateTo: string | null;
-}
+import { ScheduleResourceIcon } from "@/components/Schedule/ScheduleResourceIcon";
+import {
+  dateFilter,
+  tagFilter,
+} from "@/components/ui/multi-filter/filterConfigs";
+import MultiFilter from "@/components/ui/multi-filter/MultiFilter";
+import useMultiFilterState from "@/components/ui/multi-filter/utils/useMultiFilterState";
+import {
+  FilterDateRange,
+  shortDateRangeOptions,
+} from "@/components/ui/multi-filter/utils/Utils";
+import { useShortcutSubContext } from "@/context/ShortcutContext";
+import useAuthUser from "@/hooks/useAuthUser";
+import { ShortcutBadge } from "@/Utils/keyboardShortcutComponents";
+import { PractitionerSelector } from "./components/PractitionerSelector";
+
+type AppointmentStatusGroup = {
+  label: string;
+  statuses: AppointmentStatus[];
+};
+
+const getStatusGroups = (t: TFunction): AppointmentStatusGroup[] => {
+  return [
+    {
+      label: t("booked"),
+      statuses: [AppointmentStatus.BOOKED],
+    },
+    {
+      label: t("checked_in"),
+      statuses: [AppointmentStatus.CHECKED_IN],
+    },
+    {
+      label: t("in_consultation"),
+      statuses: [AppointmentStatus.IN_CONSULTATION],
+    },
+    {
+      label: t("fulfilled"),
+      statuses: [AppointmentStatus.FULFILLED],
+    },
+    {
+      label: t("non_fulfilled"),
+      statuses: CancelledAppointmentStatuses,
+    },
+  ];
+};
 
 function AppointmentsEmptyState() {
   const { t } = useTranslation();
@@ -114,206 +145,54 @@ function AppointmentsEmptyState() {
   );
 }
 
-function DateRangeDisplay({ dateFrom, dateTo }: DateRangeDisplayProps) {
-  const { t } = useTranslation();
-
-  if (!dateFrom && !dateTo) {
-    return (
-      <span className="text-gray-500">{t("showing_all_appointments")}</span>
-    );
-  }
-
-  const today = new Date();
-
-  // Case 1: Today only or Yesterday only
-  if (
-    (dateFrom === dateQueryString(today) &&
-      dateTo === dateQueryString(today)) ||
-    (dateFrom === dateQueryString(subDays(today, 1)) &&
-      dateTo === dateQueryString(subDays(today, 1)))
-  ) {
-    <>
-      {dateFrom === dateQueryString(today) ? (
-        <>
-          <span className="text-black">{t("today")}</span>
-          <span className="pl-1 text-gray-500">
-            ({formatDate(dateFrom, "dd MMM yyyy")})
-          </span>
-        </>
-      ) : (
-        <>
-          <span className="text-black">{t("yesterday")}</span>
-          <span className="pl-1 text-gray-500">
-            ({formatDate(dateFrom, "dd MMM yyyy")})
-          </span>
-        </>
-      )}
-    </>;
-  }
-
-  // Case 2: Pre-defined ranges
-  const ranges = [
-    {
-      label: t("last_week_short"),
-      from: subDays(today, 7),
-      to: today,
-    },
-    {
-      label: t("next_week_short"),
-      from: today,
-      to: addDays(today, 7),
-    },
-    {
-      label: t("next_month"),
-      from: today,
-      to: addDays(today, 30),
-    },
-  ];
-
-  const matchingRange = ranges.find(
-    (range) =>
-      dateFrom &&
-      dateTo &&
-      dateQueryString(range.from) === dateFrom &&
-      dateQueryString(range.to) === dateTo,
-  );
-
-  if (matchingRange && dateFrom && dateTo) {
-    return (
-      <>
-        <span className="text-black">{matchingRange.label}</span>
-        <span className="pl-1 text-gray-500">
-          ({formatDate(dateFrom, "dd MMM yyyy")} -{" "}
-          {formatDate(dateTo, "dd MMM yyyy")})
-        </span>
-      </>
-    );
-  }
-
-  // Case 3: Same date with relative labels
-  if (dateFrom && dateFrom === dateTo) {
-    const date = new Date(dateFrom);
-    let relativeDay = null;
-
-    if (isToday(date)) {
-      relativeDay = t("today");
-    } else if (isTomorrow(date)) {
-      relativeDay = t("tomorrow");
-    } else if (isYesterday(date)) {
-      relativeDay = t("yesterday");
-    }
-
-    if (relativeDay) {
-      return (
-        <>
-          <span className="text-black">{relativeDay}</span>
-          <span className="pl-1 text-gray-500">
-            ({formatDate(dateFrom, "dd MMM yyyy")})
-          </span>
-        </>
-      );
-    }
-
-    return (
-      <>
-        <span className="capitalize text-gray-500">{t("on")} </span>
-        <span className="pl-1 text-black ">
-          {formatDate(dateFrom, "dd MMM yyyy")}
-        </span>
-      </>
-    );
-  }
-
-  // Case 4: Single date (before or after)
-  if (dateFrom && !dateTo) {
-    return (
-      <>
-        <span className="capitalize text-gray-500">{t("after")} </span>
-        <span className="pl-1 text-black">
-          {formatDate(dateFrom, "dd MMM yyyy")}
-        </span>
-      </>
-    );
-  }
-
-  if (!dateFrom && dateTo) {
-    return (
-      <>
-        <span className=" capitalize text-gray-500">{t("before")} </span>
-        <span className="pl-1 text-black">
-          {formatDate(dateTo, "dd MMM yyyy")}
-        </span>
-      </>
-    );
-  }
-
-  // Case 5: Date range
-  return (
-    <span className="text-black">
-      {formatDate(dateFrom!, "dd MMM yyyy")} -{" "}
-      {formatDate(dateTo!, "dd MMM yyyy")}
-    </span>
-  );
+interface Props {
+  resourceType: SchedulableResourceType;
+  resourceId?: string;
 }
 
-export default function AppointmentsPage({
-  facilityId,
-}: {
-  facilityId: string;
-}) {
+export default function AppointmentsPage({ resourceType, resourceId }: Props) {
   const { t } = useTranslation();
   const authUser = useAuthUser();
   const { qParams, updateQuery, resultsPerPage, Pagination } = useFilters({
     limit: 15,
   });
 
+  useShortcutSubContext();
+  const practitionerFilterEnabled =
+    resourceType === SchedulableResourceType.Practitioner && !resourceId;
+
   const [activeTab, setActiveTab] = useView("appointments", "board");
   const { open: isSidebarOpen } = useSidebar();
+  const { facility, facilityId, isFacilityLoading } = useCurrentFacility();
+  const selectedTagIds = qParams.tags?.split(",") ?? [];
+  const tagConfigsQuery = useTagConfigs({ ids: selectedTagIds, facilityId });
+  const selectedTags = tagConfigsQuery
+    .map((q) => q.data)
+    .filter(Boolean) as TagConfig[];
 
   const { hasPermission } = usePermissions();
   const { goBack } = useAppHistory();
 
-  const { data: facilityData, isLoading: isFacilityLoading } = useQuery({
-    queryKey: ["facility", facilityId],
-    queryFn: query(routes.getPermittedFacility, {
-      pathParams: { id: facilityId },
-    }),
-  });
-
   const { canViewAppointments } = getPermissions(
     hasPermission,
-    facilityData?.permissions ?? [],
+    facility?.permissions ?? [],
   );
 
   const schedulableUsersQuery = useQuery({
     queryKey: ["practitioners", facilityId],
     queryFn: query(scheduleApis.appointments.availableUsers, {
-      pathParams: { facility_id: facilityId },
+      pathParams: { facilityId },
     }),
+    enabled: practitionerFilterEnabled,
   });
 
-  const resources = schedulableUsersQuery.data?.users;
-  const practitioner = resources?.find(
-    (r) => r.username === qParams.practitioner,
+  const schedulableUserResources = schedulableUsersQuery.data?.users;
+  const practitionerIds = qParams.practitioners?.split(",") ?? [];
+  const practitioners = schedulableUserResources?.filter((r) =>
+    practitionerIds.includes(r.id),
   );
 
   useEffect(() => {
-    // trigger this effect only when there are no query params already applied, and once the query is loaded
-    if (Object.keys(qParams).length !== 0 || schedulableUsersQuery.isLoading) {
-      return;
-    }
-
-    // Sets the practitioner filter to the current user if they are in the list of
-    // schedulable users and no practitioner was selected.
-    if (
-      !qParams.practitioner &&
-      schedulableUsersQuery.data?.users.some(
-        (r) => r.username === authUser.username,
-      )
-    ) {
-      qParams.practitioner = authUser.username;
-    }
-
     // Set default date range if no dates are present
     if (!qParams.date_from && !qParams.date_to) {
       const today = new Date();
@@ -334,26 +213,36 @@ export default function AppointmentsPage({
 
     // Only update if there are changes
     if (Object.keys(qParams).length > 0) {
+      updateQuery({ ...qParams });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qParams.date_from, qParams.date_to]);
+
+  useEffect(() => {
+    if (!qParams.practitioners && practitionerFilterEnabled) {
       updateQuery({
-        ...qParams,
+        practitioners: authUser.id,
       });
     }
-  }, [schedulableUsersQuery.isLoading]);
+  }, []);
 
   // Enabled only if filtered by a practitioner and a single day
   const slotsFilterEnabled =
     !!qParams.date_from &&
-    !!practitioner &&
+    !!(resourceId ?? practitioners) &&
+    (resourceId ? 1 : practitioners?.length) === 1 &&
     (qParams.date_from === qParams.date_to || !qParams.date_to);
 
   const slotsQuery = useQuery({
-    queryKey: ["slots", facilityId, qParams.practitioner, qParams.date_from],
+    queryKey: ["slots", facilityId, qParams.practitioners, qParams.date_from],
     queryFn: query(scheduleApis.slots.getSlotsForDay, {
-      pathParams: { facility_id: facilityId },
+      pathParams: { facilityId },
       body: {
         // voluntarily coalesce to empty string since we know query would be
         // enabled only if practitioner and date_from are present
-        user: practitioner?.id ?? "",
+        resource_type: resourceType,
+        resource_id:
+          resourceId ?? practitioners?.map((p) => p.id).join(",") ?? "",
         day: qParams.date_from ?? "",
       },
     }),
@@ -363,15 +252,75 @@ export default function AppointmentsPage({
   const slots = slotsQuery.data?.results?.filter((s) => s.allocated > 0);
   const slot = slots?.find((s) => s.id === qParams.slot);
 
+  const filters = [
+    tagFilter(
+      "tags",
+      TagResource.APPOINTMENT,
+      "multi",
+      t("tags", { count: 2 }),
+    ),
+    dateFilter("date", t("date"), shortDateRangeOptions, true),
+  ];
+
+  const onFilterUpdate = (query: Record<string, unknown>) => {
+    for (const [key, value] of Object.entries(query)) {
+      switch (key) {
+        case "tags":
+          query.tags = (value as TagConfig[])?.map((tag) => tag.id).join(",");
+          break;
+        case "tags_behavior":
+          // tags_behavior is already handled by the filter system
+          break;
+        case "date":
+          {
+            const dateRange = value as FilterDateRange;
+            query = {
+              ...query,
+              date: undefined,
+              date_from: dateRange?.from
+                ? dateQueryString(dateRange?.from as Date)
+                : undefined,
+              date_to: dateRange?.to
+                ? dateQueryString(dateRange?.to as Date)
+                : undefined,
+            };
+          }
+          break;
+      }
+    }
+    updateQuery(query);
+  };
+
+  const {
+    selectedFilters,
+    handleFilterChange,
+    handleOperationChange,
+    handleClearAll,
+    handleClearFilter,
+  } = useMultiFilterState(filters, onFilterUpdate, {
+    ...qParams,
+    tags: selectedTags,
+    date:
+      qParams.date_from || qParams.date_to
+        ? {
+            from: qParams.date_from ? new Date(qParams.date_from) : undefined,
+            to: qParams.date_to ? new Date(qParams.date_to) : undefined,
+          }
+        : undefined,
+  });
+
   useEffect(() => {
-    if (!canViewAppointments && !isFacilityLoading) {
+    if (!isFacilityLoading && !canViewAppointments && !facility) {
       toast.error(t("no_permission_to_view_page"));
       goBack("/");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canViewAppointments, isFacilityLoading]);
+  }, [canViewAppointments, facility, isFacilityLoading]);
 
-  if (schedulableUsersQuery.isLoading) {
+  if (
+    (practitionerFilterEnabled && schedulableUsersQuery.isLoading) ||
+    !facility
+  ) {
     return <Loading />;
   }
 
@@ -398,200 +347,71 @@ export default function AppointmentsPage({
     >
       <div className="mt-4 py-4 flex flex-col lg:flex-row gap-4 justify-between border-t border-gray-200">
         <div className="flex flex-col xl:flex-row gap-4 items-start md:items-start md:w-xs">
-          <div className="mt-1 w-full">
-            <Label className="mb-2 text-black">
-              {t("select_practitioner")}
-            </Label>
-            <PractitionerSelector
-              facilityId={facilityId}
-              selected={practitioner ?? null}
-              onSelect={(user) =>
-                updateQuery({
-                  practitioner: user?.username ?? null,
-                  slot: null,
-                })
-              }
-              clearSelection={t("show_all")}
-            />
-          </div>
-
-          <div>
-            <div className="flex items-center gap-1 -mt-2">
-              <Popover modal>
-                <PopoverTrigger asChild>
-                  <Button variant="ghost">
-                    <Label>
-                      <DateRangeDisplay
-                        dateFrom={qParams.date_from}
-                        dateTo={qParams.date_to}
-                      />
-                    </Label>
-                    <Edit3Icon />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto" align="start">
-                  <div className="flex flex-col gap-4">
-                    <div className="flex justify-between">
-                      <Button
-                        variant="link"
-                        size="xs"
-                        onClick={() => {
-                          const today = new Date();
-                          updateQuery({
-                            date_from: dateQueryString(subDays(today, 7)),
-                            date_to: dateQueryString(today),
-                            slot: null,
-                          });
-                        }}
-                      >
-                        {t("last_week_short")}
-                      </Button>
-
-                      <Button
-                        variant="link"
-                        size="xs"
-                        onClick={() => {
-                          const today = new Date();
-                          updateQuery({
-                            date_from: dateQueryString(subDays(today, 1)),
-                            date_to: dateQueryString(subDays(today, 1)),
-                            slot: null,
-                          });
-                        }}
-                      >
-                        {t("yesterday")}
-                      </Button>
-
-                      <Button
-                        variant="link"
-                        size="xs"
-                        onClick={() => {
-                          const today = new Date();
-                          updateQuery({
-                            date_from: dateQueryString(today),
-                            date_to: dateQueryString(today),
-                            slot: null,
-                          });
-                        }}
-                      >
-                        {t("today")}
-                      </Button>
-
-                      <Button
-                        variant="link"
-                        size="xs"
-                        onClick={() => {
-                          const today = new Date();
-                          updateQuery({
-                            date_from: dateQueryString(today),
-                            date_to: dateQueryString(addDays(today, 7)),
-                            slot: null,
-                          });
-                        }}
-                      >
-                        {t("next_week_short")}
-                      </Button>
-
-                      <Button
-                        variant="link"
-                        size="xs"
-                        onClick={() => {
-                          const today = new Date();
-                          updateQuery({
-                            date_from: dateQueryString(today),
-                            date_to: dateQueryString(addDays(today, 30)),
-                            slot: null,
-                          });
-                        }}
-                      >
-                        {t("next_month")}
-                      </Button>
-                    </div>
-
-                    <div className="flex flex-col gap-2">
-                      <Label className="text-sm font-medium">
-                        {t("start_date")}
-                      </Label>
-                      <CombinedDatePicker
-                        value={
-                          qParams.date_from
-                            ? new Date(qParams.date_from)
-                            : undefined
-                        }
-                        onChange={(date) => {
-                          if (qParams.date_to && date) {
-                            if (
-                              dayjs(date).isAfter(dayjs(qParams.date_to), "day")
-                            ) {
-                              updateQuery({
-                                date_from: date ? dateQueryString(date) : null,
-                                date_to: null,
-                                slot: null,
-                              });
-                              return;
-                            }
-                          }
-                          updateQuery({
-                            date_from: date ? dateQueryString(date) : null,
-                            slot: null,
-                          });
-                        }}
-                      />
-                    </div>
-
-                    <div className="flex flex-col gap-2">
-                      <Label className="text-sm font-medium">
-                        {t("end_date")}
-                      </Label>
-                      <CombinedDatePicker
-                        value={
-                          qParams.date_to
-                            ? new Date(qParams.date_to)
-                            : undefined
-                        }
-                        onChange={(date) => {
-                          updateQuery({
-                            date_to: date ? dateQueryString(date) : null,
-                            slot: null,
-                          });
-                        }}
-                        blockDate={(date) =>
-                          qParams.date_from
-                            ? dayjs(date).isBefore(
-                                dayjs(qParams.date_from),
-                                "day",
-                              )
-                            : false
-                        }
-                      />
-                    </div>
-                  </div>
-                </PopoverContent>
-              </Popover>
-            </div>
-
-            {slotsFilterEnabled && !!slots?.length && (
-              <SlotFilter
-                slots={slots}
-                selectedSlot={slot}
-                onSelect={(slot) => {
-                  if (slot === "all") {
-                    updateQuery({ slot: null });
-                  } else {
-                    updateQuery({ slot });
-                  }
+          {practitionerFilterEnabled && (
+            <div className="mt-1 w-full">
+              <Label className="mb-2 text-black">
+                {t("practitioner", { count: 2 })}
+              </Label>
+              <PractitionerSelector
+                facilityId={facilityId}
+                selected={practitioners || []}
+                onSelect={(users) => {
+                  updateQuery({
+                    practitioners: users.map((user) => user.id),
+                    slot: null,
+                  });
                 }}
               />
-            )}
+            </div>
+          )}
+
+          {/* Tags Filter */}
+          <div>
+            <Label className="mt-1 text-black">{t("filter_by_tags")}</Label>
+            <MultiFilter
+              selectedFilters={selectedFilters}
+              onFilterChange={handleFilterChange}
+              onOperationChange={handleOperationChange}
+              onClearAll={handleClearAll}
+              onClearFilter={handleClearFilter}
+              className="flex sm:flex-row mt-2 sm:items-center"
+              triggerButtonClassName="self-start sm:self-center h-9"
+              clearAllButtonClassName="self-center"
+              selectedBarClassName="h-9"
+              facilityId={facilityId}
+            />
           </div>
         </div>
 
-        <div className="flex gap-4 items-center">
-          <Input
-            className="md:w-xs w-full"
-            placeholder={t("search")}
-            value={qParams.search ?? ""}
-            onChange={(e) => updateQuery({ search: e.target.value })}
+        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+          {activeTab === "list" && (
+            <Button
+              variant="outline"
+              disabled={
+                !qParams.date_from ||
+                differenceInDays(
+                  qParams.date_to ?? new Date(),
+                  qParams.date_from,
+                ) >= 31
+              }
+              onClick={() => {
+                navigate("appointments/print", { query: qParams });
+              }}
+            >
+              <CareIcon icon="l-print" className="text-lg" />
+              {t("print")}
+              <ShortcutBadge actionId="print-button" />
+            </Button>
+          )}
+          <PatientIdentifierFilter
+            onSelect={(patientId, patientName) =>
+              updateQuery({ patient: patientId, patient_name: patientName })
+            }
+            placeholder={t("search_patients")}
+            className="w-full sm:w-auto"
+            patientId={qParams.patient}
+            patientName={qParams.patient_name}
+            align="end"
           />
         </div>
       </div>
@@ -606,25 +426,19 @@ export default function AppointmentsPage({
           )}
         >
           <div className="flex w-max space-x-4">
-            {(
-              [
-                "booked",
-                "checked_in",
-                "in_consultation",
-                "fulfilled",
-                "noshow",
-              ] as const
-            ).map((status) => (
+            {getStatusGroups(t).map((statusGroup) => (
               <AppointmentColumn
-                key={status}
-                status={status}
-                facilityId={facilityId}
+                key={statusGroup.label}
+                statusGroup={statusGroup}
                 slot={slot?.id}
-                practitioner={practitioner?.id ?? null}
+                resourceType={resourceType}
+                resourceIds={resourceId ? [resourceId] : practitionerIds}
                 date_from={qParams.date_from}
                 date_to={qParams.date_to}
-                search={qParams.search?.toLowerCase()}
                 canViewAppointments={canViewAppointments}
+                tags={selectedTags.map((tag) => tag.id)}
+                tags_behavior={qParams.tags_behavior}
+                patient={qParams.patient}
               />
             ))}
           </div>
@@ -632,18 +446,21 @@ export default function AppointmentsPage({
         </ScrollArea>
       ) : (
         <AppointmentRow
-          facilityId={facilityId}
           updateQuery={updateQuery}
-          practitioner={practitioner?.id ?? null}
+          practitioners={qParams.practitioners || null}
           slot={qParams.slot}
           page={qParams.page}
           date_from={qParams.date_from}
           date_to={qParams.date_to}
-          search={qParams.search?.toLowerCase()}
           canViewAppointments={canViewAppointments}
           resultsPerPage={resultsPerPage}
           status={qParams.status}
           Pagination={Pagination}
+          tags={selectedTags.map((tag) => tag.id)}
+          tags_behavior={qParams.tags_behavior}
+          patient={qParams.patient}
+          resourceType={resourceType}
+          resourceIds={resourceId ? [resourceId] : practitionerIds}
         />
       )}
     </Page>
@@ -651,78 +468,173 @@ export default function AppointmentsPage({
 }
 
 function AppointmentColumn(props: {
-  facilityId: string;
-  status: Appointment["status"];
-  practitioner: string | null;
+  statusGroup: AppointmentStatusGroup;
   slot?: string | null;
+  tags?: string[];
+  tags_behavior?: string;
   date_from: string | null;
   date_to: string | null;
-  search?: string;
   canViewAppointments: boolean;
+  patient?: string;
+  resourceType: SchedulableResourceType;
+  resourceIds: string[];
 }) {
+  const { facilityId } = useCurrentFacility();
   const { t } = useTranslation();
+  const [selectedStatuses, setSelectedStatuses] = useState<AppointmentStatus[]>(
+    [],
+  );
+  const { ref, inView } = useInView();
 
-  const { data } = useQuery({
+  const {
+    data: appointmentsData,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+  } = useInfiniteQuery({
     queryKey: [
-      "appointments",
-      props.facilityId,
-      props.status,
-      props.practitioner,
+      "infinite-appointments",
+      facilityId,
+      selectedStatuses.length === 0
+        ? props.statusGroup.statuses
+        : selectedStatuses,
+      props.resourceIds.join(","),
       props.slot,
       props.date_from,
       props.date_to,
+      props.tags,
+      props.tags_behavior,
+      props.patient,
     ],
-    queryFn: query(scheduleApis.appointments.list, {
-      pathParams: { facility_id: props.facilityId },
-      queryParams: {
-        status: props.status,
-        limit: 100,
-        slot: props.slot,
-        user: props.practitioner ?? undefined,
-        date_after: props.date_from,
-        date_before: props.date_to,
-      },
-    }),
-    enabled: !!props.date_from && !!props.date_to && props.canViewAppointments,
+    queryFn: async ({ pageParam = 0, signal }) => {
+      const response = await query(scheduleApis.appointments.list, {
+        pathParams: { facilityId },
+        queryParams: {
+          offset: pageParam,
+          status:
+            selectedStatuses.length === 0
+              ? props.statusGroup.statuses.join(",")
+              : selectedStatuses.join(","),
+          tags: props.tags?.join(","),
+          tags_behavior: props.tags_behavior,
+          limit: 10,
+          slot: props.slot,
+          resource_type: props.resourceType,
+          resource_ids: props.resourceIds.join(","),
+          date_after: props.date_from,
+          date_before: props.date_to,
+          patient: props.patient,
+        },
+        silent: true,
+      })({ signal });
+      return response;
+    },
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) => {
+      const currentOffset = allPages.length * 10;
+      return currentOffset < lastPage.count ? currentOffset : null;
+    },
+    enabled: !!props.resourceIds.length && props.canViewAppointments,
   });
 
-  let appointments = data?.results ?? [];
+  const appointments =
+    appointmentsData?.pages.flatMap((page) => page.results) ?? [];
 
-  if (props.search) {
-    appointments = appointments.filter(({ patient }) =>
-      patient.name.toLowerCase().includes(props.search!),
+  const toggleStatus = (status: AppointmentStatus) => {
+    setSelectedStatuses((prev) =>
+      prev.includes(status)
+        ? prev.filter((s) => s !== status)
+        : [...prev, status],
     );
-  }
+  };
+
+  useEffect(() => {
+    if (inView && hasNextPage) {
+      fetchNextPage();
+    }
+  }, [inView, hasNextPage, fetchNextPage]);
 
   return (
-    <div
-      className={cn(
-        "bg-gray-100 py-4 rounded-lg w-[20rem] overflow-y-hidden",
-        !data && "animate-pulse",
-      )}
-    >
-      <div className="flex px-3 items-center gap-2 mb-4">
-        <h2 className="font-semibold capitalize text-base px-1">
-          {t(props.status)}
-        </h2>
-        <span className="bg-gray-200 px-2 py-1 rounded-md text-xs font-medium">
-          {data?.count == null ? (
-            "..."
-          ) : data.count === appointments.length ? (
-            data.count
-          ) : (
-            <Trans
-              i18nKey="showing_x_of_y"
-              values={{
-                x: appointments.length,
-                y: data.count,
-              }}
-              components={{
-                strong: <span className="font-bold" />,
-              }}
-            />
-          )}
-        </span>
+    <div className="bg-gray-100 py-4 rounded-lg w-[20rem] overflow-y-hidden">
+      <div className="flex flex-row justify-between px-3 gap-2 mb-3">
+        <div className="flex items-center gap-2">
+          <h2 className="font-semibold capitalize text-base px-1">
+            {props.statusGroup.label}
+          </h2>
+          <span className="bg-gray-200 px-2 py-1 rounded-md text-xs font-medium">
+            {appointmentsData?.pages[0]?.count == null ? (
+              "..."
+            ) : appointmentsData?.pages[0]?.count === appointments.length ? (
+              appointmentsData?.pages[0]?.count
+            ) : (
+              <Trans
+                i18nKey="showing_x_of_y"
+                values={{
+                  x: appointments.length,
+                  y: appointmentsData?.pages[0]?.count,
+                }}
+                components={{
+                  strong: <span className="font-bold" />,
+                }}
+              />
+            )}
+          </span>
+        </div>
+        {props.statusGroup.statuses.length > 1 && (
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="icon">
+                <FilterIcon className="size-4" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-60 p-0" align="end">
+              <Command>
+                <CommandList>
+                  <CommandEmpty>{t("no_status_found")}</CommandEmpty>
+                  <CommandGroup>
+                    {props.statusGroup.statuses.map((status) => (
+                      <CommandItem
+                        key={status}
+                        onSelect={() => toggleStatus(status)}
+                        className="cursor-pointer"
+                      >
+                        <div className="flex items-center gap-2 flex-1">
+                          <div
+                            className={
+                              "size-4 rounded flex items-center justify-center border border-gray-300"
+                            }
+                          >
+                            {selectedStatuses.includes(status) && <CheckIcon />}
+                          </div>
+                          <span>{t(status)}</span>
+                        </div>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </CommandList>
+              </Command>
+            </PopoverContent>
+          </Popover>
+        )}
+      </div>
+      <div className="px-3 mb-3">
+        {selectedStatuses.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {selectedStatuses.map((status) => (
+              <Badge
+                key={status}
+                variant="outline"
+                onClick={() => toggleStatus(status)}
+                className="bg-white"
+              >
+                {t(status)}
+                <Button variant="ghost" size="icon" className="size-6 -mr-2">
+                  <CareIcon icon="l-times" />
+                </Button>
+              </Badge>
+            ))}
+          </div>
+        )}
       </div>
       {appointments.length === 0 ? (
         <div className="flex justify-center items-center h-[calc(100vh-18rem)]">
@@ -731,16 +643,29 @@ function AppointmentColumn(props: {
       ) : (
         <ScrollArea>
           <ul className="space-y-3 px-3 pb-4 pt-1 h-[calc(100vh-18rem)]">
-            {appointments.map((appointment) => (
-              <li key={appointment.id}>
+            {appointments.map((appointment, index) => (
+              <li
+                key={appointment.id}
+                ref={index === appointments.length - 1 ? ref : undefined}
+              >
                 <Link
-                  href={`/facility/${props.facilityId}/patient/${appointment.patient.id}/appointments/${appointment.id}`}
+                  href={
+                    appointment.resource_type ===
+                    SchedulableResourceType.Practitioner
+                      ? `/facility/${facilityId}/patient/${appointment.patient.id}/appointments/${appointment.id}`
+                      : `appointments/${appointment.id}`
+                  }
                   className="text-inherit"
                 >
-                  <AppointmentCard appointment={appointment} />
+                  <AppointmentCard
+                    appointment={appointment}
+                    showStatus={props.statusGroup.statuses.length > 1}
+                    showPractitioner={props.resourceIds.length > 1}
+                  />
                 </Link>
               </li>
             ))}
+            {isFetchingNextPage && <CardListSkeleton count={5} />}
           </ul>
         </ScrollArea>
       )}
@@ -748,7 +673,15 @@ function AppointmentColumn(props: {
   );
 }
 
-function AppointmentCard({ appointment }: { appointment: Appointment }) {
+function AppointmentCard({
+  appointment,
+  showStatus,
+  showPractitioner,
+}: {
+  appointment: AppointmentRead;
+  showStatus: boolean;
+  showPractitioner: boolean;
+}) {
   const { patient } = appointment;
   const { t } = useTranslation();
 
@@ -760,8 +693,7 @@ function AppointmentCard({ appointment }: { appointment: Appointment }) {
             {patient.name}
           </h3>
           <p className="text-sm text-gray-700">
-            {formatPatientAge(patient as any, true)},{" "}
-            {t(`GENDER__${patient.gender}`)}
+            {formatPatientAge(patient, true)}, {t(`GENDER__${patient.gender}`)}
           </p>
           <p className="text-xs text-gray-500 mt-1">
             {formatDateTime(
@@ -771,22 +703,51 @@ function AppointmentCard({ appointment }: { appointment: Appointment }) {
           </p>
         </div>
 
-        <div className="bg-gray-100 px-2 py-1 rounded text-center">
-          <p className="text-[10px] uppercase">{t("token")}</p>
-          {/* TODO: replace this with token number once that's ready... */}
-          <p className="font-bold text-2xl uppercase">
-            {getFakeTokenNumber(appointment)}
-          </p>
-        </div>
+        {appointment.token && (
+          <div className="flex">
+            <div className="bg-gray-100 px-2 py-1 ml-px text-center rounded-md">
+              <p className="text-[10px] uppercase">{t("token")}</p>
+              <p className="font-bold text-2xl uppercase">
+                {appointment.token?.number ?? "--"}
+              </p>
+            </div>
+          </div>
+        )}
       </div>
+      <div className="flex flex-wrap gap-1">
+        {appointment.tags.map((tag) => (
+          <Badge variant="primary" className="text-xs" key={tag.id}>
+            {tag.display}
+          </Badge>
+        ))}
+        {showStatus && (
+          <Badge
+            variant={APPOINTMENT_STATUS_COLORS[appointment.status]}
+            className="text-xs"
+          >
+            {t(appointment.status)}
+          </Badge>
+        )}
+      </div>
+      {showPractitioner &&
+        appointment.resource_type === SchedulableResourceType.Practitioner && (
+          <div className="flex items-center justify-start gap-1 pr-2 bg-gray-100 w-fit rounded-full mt-1">
+            <ScheduleResourceIcon
+              resource={appointment}
+              className="size-5 rounded-full"
+            />
+            <span className="text-xs font-semibold text-gray-500">
+              {formatScheduleResourceName(appointment)}
+            </span>
+          </div>
+        )}
     </div>
   );
 }
 
 function AppointmentRow(props: {
-  facilityId: string;
   page: number | null;
-  practitioner: string | null;
+  practitioners: string | null;
   Pagination: ({
     totalCount,
     noMargin,
@@ -797,97 +758,95 @@ function AppointmentRow(props: {
   updateQuery: (filter: FilterState) => void;
   resultsPerPage: number;
   slot: string | null;
-  status: string | null;
+  status: AppointmentStatus;
   date_from: string | null;
   date_to: string | null;
-  search?: string;
   canViewAppointments: boolean;
+  tags?: string[];
+  tags_behavior?: string;
+  patient?: string;
+  resourceType: SchedulableResourceType;
+  resourceIds: string[];
 }) {
+  const { facilityId } = useCurrentFacility();
   const { t } = useTranslation();
 
   const { data, isLoading } = useQuery({
     queryKey: [
       "appointments",
-      props.facilityId,
+      facilityId,
       props.status,
       props.page,
-      props.practitioner,
+      props.practitioners,
       props.slot,
       props.date_from,
       props.date_to,
+      props.tags,
+      props.tags_behavior,
+      props.patient,
     ],
     queryFn: query(scheduleApis.appointments.list, {
-      pathParams: { facility_id: props.facilityId },
+      pathParams: { facilityId },
       queryParams: {
         status: props.status ?? "booked",
         slot: props.slot,
-        user: props.practitioner ?? undefined,
+        user: props.practitioners ?? undefined,
         date_after: props.date_from,
         date_before: props.date_to,
+        tags: props.tags,
+        tags_behavior: props.tags_behavior,
         limit: props.resultsPerPage,
         offset: ((props.page ?? 1) - 1) * props.resultsPerPage,
+        patient: props.patient,
+        resource_type: props.resourceType,
+        resource_ids: props.resourceIds.join(","),
       },
     }),
-    enabled: !!props.date_from && !!props.date_to && props.canViewAppointments,
+    enabled: !!props.resourceIds.length && props.canViewAppointments,
   });
 
-  let appointments = data?.results ?? [];
+  const appointments = data?.results ?? [];
 
-  if (props.search) {
-    appointments = appointments.filter(({ patient }) =>
-      patient.name.toLowerCase().includes(props.search!),
-    );
-  }
   return (
     <div className="overflow-x-auto">
-      <div className={cn(!data && "animate-pulse")}>
-        <div className="hidden md:flex">
-          <Tabs
-            value={props.status ?? "booked"}
-            className="overflow-x-auto"
-            onValueChange={(value) => props.updateQuery({ status: value })}
-          >
-            <TabsList>
-              <TabsTrigger value="booked">{t("booked")}</TabsTrigger>
-              <TabsTrigger value="checked_in">{t("checked_in")}</TabsTrigger>
-              <TabsTrigger value="in_consultation">
-                {t("in_consultation")}
-              </TabsTrigger>
-              <TabsTrigger value="fulfilled">{t("fulfilled")}</TabsTrigger>
-              <TabsTrigger value="noshow">{t("noshow")}</TabsTrigger>
-            </TabsList>
-          </Tabs>
-        </div>
+      <div className="hidden md:flex">
+        <Tabs
+          value={props.status ?? "booked"}
+          className="overflow-x-auto"
+          onValueChange={(value) => props.updateQuery({ status: value })}
+        >
+          <TabsList>
+            {getStatusGroups(t).map((group) => {
+              return (
+                <TabsTrigger key={group.label} value={group.statuses.join(",")}>
+                  {group.label}
+                </TabsTrigger>
+              );
+            })}
+          </TabsList>
+        </Tabs>
+      </div>
 
-        {/* Status Filter - Mobile */}
-        <div className="md:hidden">
-          <Select
-            value={props.status || "booked"}
-            onValueChange={(value) => props.updateQuery({ status: value })}
-          >
-            <SelectTrigger className="h-8 w-40">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="booked">
-                <div className="flex items-center">Booked</div>
+      {/* Status Filter - Mobile */}
+      <div className="md:hidden">
+        <Select
+          value={props.status || "booked"}
+          onValueChange={(value) => props.updateQuery({ status: value })}
+        >
+          <SelectTrigger className="h-8 w-40">
+            <SelectValue placeholder={t("status")} />
+          </SelectTrigger>
+          <SelectContent>
+            {getStatusGroups(t).map((group) => (
+              <SelectItem key={group.label} value={group.statuses.join(",")}>
+                <div className="flex items-center">{group.label}</div>
               </SelectItem>
-              <SelectItem value="checked_in">
-                <div className="flex items-center">Checked In</div>
-              </SelectItem>
-              <SelectItem value="in_consultation">
-                <div className="flex items-center">In Consultation</div>
-              </SelectItem>
-              <SelectItem value="fulfilled">
-                <div className="flex items-center">Fulfilled</div>
-              </SelectItem>
-              <SelectItem value="noshow">
-                <div className="flex items-center">No Show</div>
-              </SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
+      <div className="mt-2">
         {isLoading ? (
           <TableSkeleton count={5} />
         ) : appointments.length === 0 ? (
@@ -899,9 +858,13 @@ function AppointmentRow(props: {
                 <TableHead className="pl-8 font-semibold text-black text-xs">
                   {t("patient")}
                 </TableHead>
-                <TableHead className="font-semibold text-black text-xs">
-                  {t("practitioner")}
-                </TableHead>
+                {props.resourceType ===
+                  SchedulableResourceType.Practitioner && (
+                  <TableHead className="font-semibold text-black text-xs">
+                    {t("practitioner", { count: 1 })}
+                  </TableHead>
+                )}
+
                 <TableHead className="font-semibold text-black text-xs">
                   {t("current_status")}
                 </TableHead>
@@ -910,39 +873,30 @@ function AppointmentRow(props: {
                 </TableHead>
               </TableRow>
             </TableHeader>
-            <TableBody className="">
+            <TableBody>
               {appointments.map((appointment) => (
                 <TableRow
                   key={appointment.id}
                   className="shadow-sm rounded-lg cursor-pointer group"
                   onClick={() =>
                     navigate(
-                      `/facility/${props.facilityId}/patient/${appointment.patient.id}/appointments/${appointment.id}`,
+                      `/facility/${facilityId}/patient/${appointment.patient.id}/appointments/${appointment.id}`,
                     )
                   }
                 >
-                  <AppointmentRowItem
-                    appointment={appointment}
-                    facilityId={props.facilityId}
-                  />
+                  <AppointmentRowItem appointment={appointment} />
                 </TableRow>
               ))}
             </TableBody>
           </Table>
         )}
-        {props.Pagination({ totalCount: data?.count ?? 0 })}
       </div>
+      {props.Pagination({ totalCount: data?.count ?? 0 })}
     </div>
   );
 }
 
-function AppointmentRowItem({
-  appointment,
-  facilityId,
-}: {
-  appointment: Appointment;
-  facilityId: string;
-}) {
+function AppointmentRowItem({ appointment }: { appointment: Appointment }) {
   const { patient } = appointment;
   const { t } = useTranslation();
 
@@ -957,226 +911,24 @@ function AppointmentRowItem({
           <span className="flex flex-col">
             <span className="text-sm font-semibold">{patient.name}</span>
             <span className="text-xs text-gray-500">
-              {formatPatientAge(patient as any, true)},{" "}
+              {formatPatientAge(patient, true)},{" "}
               {t(`GENDER__${patient.gender}`)}
             </span>
           </span>
         </span>
       </TableCell>
       {/* TODO: Replace with relevant information */}
+      {appointment.resource_type === SchedulableResourceType.Practitioner && (
+        <TableCell className="py-6 group-hover:bg-gray-100 bg-white">
+          {formatScheduleResourceName(appointment)}
+        </TableCell>
+      )}
       <TableCell className="py-6 group-hover:bg-gray-100 bg-white">
-        {formatName(appointment.user)}
+        {t(appointment.status)}
       </TableCell>
-      <TableCell className="py-6 group-hover:bg-gray-100 bg-white">
-        <AppointmentStatusDropdown
-          appointment={appointment}
-          facilityId={facilityId}
-        />
-      </TableCell>
-      {/* TODO: replace this with token number once that's ready... */}
       <TableCell className="py-6 group-hover:bg-gray-100 bg-white rounded-r-lg">
-        {getFakeTokenNumber(appointment)}
+        {appointment.token?.number ?? "--"}
       </TableCell>
     </>
   );
 }
-
-const AppointmentStatusDropdown = ({
-  appointment,
-  facilityId,
-}: {
-  appointment: Appointment;
-  facilityId: string;
-}) => {
-  const { t } = useTranslation();
-  const queryClient = useQueryClient();
-  const currentStatus = appointment.status;
-  const hasStarted = isPast(appointment.token_slot.start_datetime);
-
-  const { mutate: updateAppointment } = useMutation({
-    mutationFn: mutate(scheduleApis.appointments.update, {
-      pathParams: {
-        facility_id: facilityId,
-        id: appointment.id,
-      },
-    }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["appointments", facilityId],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["appointment", appointment.id],
-      });
-    },
-  });
-
-  // Get available status options based on current status
-  const getAvailableStatuses = () => {
-    if (
-      ["fulfilled", "cancelled", "entered_in_error"].includes(currentStatus)
-    ) {
-      return [currentStatus];
-    }
-
-    if (currentStatus === "booked") {
-      return ["booked", "checked_in", "in_consultation", "noshow", "cancelled"];
-    }
-
-    if (currentStatus === "checked_in") {
-      return ["checked_in", "in_consultation", "noshow", "cancelled"];
-    }
-
-    if (currentStatus === "in_consultation") {
-      return ["in_consultation", "fulfilled", "cancelled"];
-    }
-
-    return AppointmentStatuses;
-  };
-
-  return (
-    <div className="w-32" onClick={(e) => e.stopPropagation()}>
-      <Select
-        value={currentStatus}
-        onValueChange={(value) =>
-          updateAppointment({ status: value as Appointment["status"] })
-        }
-      >
-        <SelectTrigger>
-          <CareIcon icon="l-schedule" className="size-4" />
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {getAvailableStatuses().map((status) => (
-            <SelectItem
-              key={status}
-              value={status}
-              disabled={
-                !hasStarted &&
-                ["checked_in", "in_consultation", "fulfilled"].includes(status)
-              }
-            >
-              {t(status)}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  );
-};
-
-interface SlotFilterProps {
-  slots: TokenSlot[];
-  disableInline?: boolean;
-  disabled?: boolean;
-  selectedSlot: TokenSlot | undefined;
-  onSelect: (slot: string) => void;
-}
-
-export const SlotFilter = ({
-  slots,
-  selectedSlot,
-  onSelect,
-  ...props
-}: SlotFilterProps) => {
-  const { t } = useTranslation();
-
-  if (slots.length <= 3 && !props.disableInline) {
-    return (
-      <Tabs value={selectedSlot?.id ?? "all"} onValueChange={onSelect}>
-        <TabsList>
-          <TabsTrigger
-            value="all"
-            className="uppercase"
-            disabled={props.disabled}
-          >
-            {t("all")}
-          </TabsTrigger>
-          {slots.map((slot) => (
-            <TabsTrigger
-              key={slot.id}
-              value={slot.id}
-              disabled={props.disabled}
-            >
-              {format(slot.start_datetime, "h:mm a").replace(":00", "")}
-              {" - "}
-              {format(slot.end_datetime, "h:mm a").replace(":00", "")}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
-    );
-  }
-
-  const slotsByAvailability = groupSlotsByAvailability(slots);
-
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          role="combobox"
-          className="min-w-60 justify-start"
-          disabled={props.disabled}
-        >
-          {selectedSlot ? (
-            <div className="flex items-center gap-2">
-              <span>{formatSlotTimeRange(selectedSlot)}</span>
-            </div>
-          ) : (
-            <span>{t("show_all_slots")}</span>
-          )}
-          <CaretDownIcon className="ml-auto" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="p-0" align="start">
-        <Command>
-          <CommandInput
-            placeholder={t("search")}
-            className="outline-hidden border-none ring-0 shadow-none"
-          />
-          <CommandList>
-            <CommandEmpty>{t("no_slots_found")}</CommandEmpty>
-            <CommandGroup>
-              <CommandItem
-                value="all"
-                onSelect={() => onSelect("all")}
-                className="cursor-pointer"
-              >
-                <span>{t("show_all")}</span>
-                {selectedSlot === undefined && (
-                  <CheckIcon className="ml-auto" />
-                )}
-              </CommandItem>
-            </CommandGroup>
-            {slotsByAvailability.map(({ availability, slots }) => (
-              <>
-                <CommandSeparator />
-                <CommandGroup
-                  key={availability.name}
-                  heading={availability.name}
-                >
-                  {slots.map((slot) => (
-                    <CommandItem
-                      key={slot.id}
-                      value={formatSlotTimeRange(slot)}
-                      onSelect={() => onSelect(slot.id)}
-                      className="cursor-pointer"
-                    >
-                      <span>{formatSlotTimeRange(slot)}</span>
-                      <span className="text-xs text-gray-500 font-medium">
-                        {slot.allocated} / {availability.tokens_per_slot}
-                      </span>
-                      {selectedSlot?.id === slot.id && (
-                        <CheckIcon className="ml-auto" />
-                      )}
-                    </CommandItem>
-                  ))}
-                </CommandGroup>
-              </>
-            ))}
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
-  );
-};

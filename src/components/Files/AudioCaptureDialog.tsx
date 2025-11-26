@@ -1,10 +1,11 @@
 import { Link } from "raviger";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import CareIcon from "@/CAREUI/icons/CareIcon";
 
+import { useMediaStream } from "@/hooks/useMediaStream";
 import { useTimer } from "@/hooks/useTimer";
 
 import useVoiceRecorder from "@/Utils/useVoiceRecorder";
@@ -25,8 +26,8 @@ export default function AudioCaptureDialog(props: AudioCaptureDialogProps) {
 
   const { show, onHide, onCapture, autoRecord = false } = props;
   const [status, setStatus] = useState<Status | null>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
   const { t } = useTranslation();
+  const timer = useTimer();
 
   const { audioURL, resetRecording, startRecording, stopRecording } =
     useVoiceRecorder((permission: boolean) => {
@@ -37,27 +38,35 @@ export default function AudioCaptureDialog(props: AudioCaptureDialogProps) {
       }
     });
 
-  const timer = useTimer();
+  const { startStream, stopStream } = useMediaStream({
+    constraints: { audio: true },
+    onError: () => {
+      toast.error(t("audio__permission_message"));
+      setStatus("PERMISSION_DENIED");
+    },
+  });
 
-  const handleStartRecording = () => {
-    navigator.mediaDevices
-      .getUserMedia({ audio: true })
-      .then((stream) => {
-        mediaStreamRef.current = stream;
+  const handleStartRecording = async () => {
+    if (status === "RECORDING") return;
+
+    try {
+      const stream = await startStream();
+      if (stream) {
         setStatus("RECORDING");
         startRecording();
         timer.start();
-      })
-      .catch(() => {
-        toast.error(t("audio__permission_message"));
-        setStatus("PERMISSION_DENIED");
-      });
+      }
+    } catch {
+      toast.error(t("audio__permission_message"));
+      setStatus("PERMISSION_DENIED");
+    }
   };
 
   const handleStopRecording = () => {
     if (status !== "RECORDING") return;
     setStatus("RECORDED");
     stopRecording();
+    stopStream();
     timer.stop();
   };
 
@@ -104,14 +113,7 @@ export default function AudioCaptureDialog(props: AudioCaptureDialogProps) {
     if (autoRecord && show && status === "RECORDING") {
       handleStartRecording();
     }
-
-    return () => {
-      if (mediaStreamRef.current) {
-        mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-        mediaStreamRef.current = null;
-      }
-    };
-  }, [autoRecord, status, show]);
+  }, [autoRecord, show, status]);
 
   return (
     <div
@@ -143,7 +145,7 @@ export default function AudioCaptureDialog(props: AudioCaptureDialogProps) {
             <button
               onClick={handleStartRecording}
               className="inline-flex aspect-square w-32 items-center justify-center rounded-full bg-white/10 text-6xl text-white hover:bg-white/20"
-              data-cy="start-recording-button"
+              aria-label="Start Recording"
             >
               <CareIcon icon="l-microphone" />
             </button>
@@ -166,7 +168,7 @@ export default function AudioCaptureDialog(props: AudioCaptureDialogProps) {
               onClick={handleStopRecording}
               id="stop-recording"
               className="inline-flex aspect-square w-32 animate-pulse items-center justify-center rounded-full bg-red-500/20 text-2xl text-red-500 hover:bg-red-500/30"
-              data-cy="stop-recording-button"
+              aria-label="Stop Recording"
             >
               {timer.time}
             </button>
@@ -193,7 +195,6 @@ export default function AudioCaptureDialog(props: AudioCaptureDialogProps) {
               onClick={handleSubmit}
               className="rounded-md bg-primary-500 px-4 py-2 text-white transition-all hover:bg-primary-600"
               id="save-recording"
-              data-cy="save-recording-button"
             >
               <CareIcon icon="l-check" className="mr-2 text-lg" />
               {t("done")}
@@ -201,7 +202,6 @@ export default function AudioCaptureDialog(props: AudioCaptureDialogProps) {
             <button
               onClick={handleRestartRecording}
               className="rounded-md bg-white/10 px-4 py-2 text-white transition-all hover:bg-white/20"
-              data-cy="start-again-button"
             >
               <CareIcon icon="l-history" className="mr-2 text-lg" />
               {t("audio__start_again")}
@@ -216,7 +216,6 @@ export default function AudioCaptureDialog(props: AudioCaptureDialogProps) {
           resetRecording();
         }}
         className="rounded-md bg-white/10 px-4 py-2 text-white transition-all hover:bg-white/20"
-        data-cy="cancel-audio-button"
       >
         <CareIcon icon="l-times" className="mr-2 text-lg" />
         {t("cancel")}

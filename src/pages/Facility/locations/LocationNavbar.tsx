@@ -1,6 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import React from "react";
 import { useTranslation } from "react-i18next";
 
 import { cn } from "@/lib/utils";
@@ -46,7 +45,7 @@ export function LocationTreeNode({
       queryParams: {
         parent: location.id,
         mode: "kind",
-        ordering: "sort_index",
+        limit: 100,
       },
     }),
     enabled: true,
@@ -94,7 +93,7 @@ export function LocationTreeNode({
             onToggleExpand(location.id);
           }}
         >
-          <Icon className="size-4" />
+          <Icon className="size-4 shrink-0" />
           <span className="truncate">{location.name}</span>
         </div>
       </div>
@@ -142,7 +141,6 @@ export default function LocationNavbar({
       queryParams: {
         mine: true,
         mode: "kind",
-        ordering: "sort_index",
       },
       pageSize: 100,
     }),

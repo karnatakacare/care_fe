@@ -4,15 +4,15 @@ import { createContext, useEffect, useState } from "react";
 
 import { useAuthContext } from "@/hooks/useAuthUser";
 
-import routes from "@/Utils/request/api";
 import query from "@/Utils/request/query";
-import { TokenData } from "@/types/auth/otp";
-import { Patient } from "@/types/emr/patient";
+import { PublicPatientRead } from "@/types/emr/patient/patient";
+import publicPatientApi from "@/types/emr/patient/publicPatientApi";
+import { TokenData } from "@/types/otp/otp";
 
 export type PatientUserContextType = {
-  patients?: Patient[];
-  selectedPatient: Patient | null;
-  setSelectedPatient: (patient: Patient) => void;
+  patients?: PublicPatientRead[];
+  selectedPatient: PublicPatientRead | null;
+  setSelectedPatient: (patient: PublicPatientRead) => void;
   tokenData: TokenData;
 };
 
@@ -25,14 +25,15 @@ interface Props {
 }
 
 export default function PatientUserProvider({ children }: Props) {
-  const [patients, setPatients] = useState<Patient[]>([]);
-  const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
+  const [patients, setPatients] = useState<PublicPatientRead[]>([]);
+  const [selectedPatient, setSelectedPatient] =
+    useState<PublicPatientRead | null>(null);
 
   const { patientToken: tokenData } = useAuthContext();
 
   const { data: userData } = useQuery({
     queryKey: ["patients", tokenData],
-    queryFn: query(routes.otp.getPatient, {
+    queryFn: query(publicPatientApi.list, {
       headers: {
         Authorization: `Bearer ${tokenData?.token}`,
       },

@@ -3,8 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import dayjs from "dayjs";
 import { useQueryParams } from "raviger";
 import { useForm } from "react-hook-form";
-import { useTranslation } from "react-i18next";
-import { Trans } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import * as z from "zod";
 
@@ -49,12 +48,16 @@ import {
   getSlotsPerSession,
   getTokenDuration,
 } from "@/pages/Scheduling/utils";
-import { ScheduleAvailabilityCreateRequest } from "@/types/scheduling/schedule";
+import {
+  SchedulableResourceType,
+  ScheduleAvailabilityCreateRequest,
+} from "@/types/scheduling/schedule";
 import scheduleApis from "@/types/scheduling/scheduleApi";
 
 interface Props {
   facilityId: string;
-  userId: string;
+  resourceType: SchedulableResourceType;
+  resourceId: string;
   trigger?: React.ReactNode;
 }
 
@@ -64,7 +67,8 @@ type QueryParams = {
 
 export default function CreateScheduleTemplateSheet({
   facilityId,
-  userId,
+  resourceType,
+  resourceId,
   trigger,
 }: Props) {
   const { t } = useTranslation();
@@ -81,7 +85,7 @@ export default function CreateScheduleTemplateSheet({
 
   const formSchema = z
     .object({
-      name: z.string().min(1, t("field_required")),
+      name: z.string().trim().min(1, t("field_required")),
       valid_from: z
         .date({ required_error: t("field_required") })
         .min(dayjs().startOf("day").toDate(), {
@@ -99,35 +103,50 @@ export default function CreateScheduleTemplateSheet({
               // Schema for appointment type
               z.object({
                 slot_type: z.literal("appointment"),
-                name: z.string().min(1, t("field_required")),
-                reason: z.string(),
+                name: z.string().trim().min(1, t("field_required")),
+                reason: z.string().trim(),
                 start_time: z
-                  .string()
-                  .min(1, t("field_required")) as unknown as z.ZodType<Time>,
+                  .string({ required_error: t("field_required") })
+                  .min(1, t("field_required")) as z.ZodType<Time | undefined>,
                 end_time: z
-                  .string()
-                  .min(1, t("field_required")) as unknown as z.ZodType<Time>,
+                  .string({ required_error: t("field_required") })
+                  .min(1, t("field_required")) as z.ZodType<Time | undefined>,
                 slot_size_in_minutes: z
-                  .number()
-                  .min(1, t("number_min_error", { min: 0 })),
+                  .union([
+                    z.number().min(1, t("number_min_error", { min: 1 })),
+                    z.undefined(),
+                  ])
+                  .refine((val) => val !== undefined, {
+                    message: t("field_required"),
+                  }),
                 tokens_per_slot: z
-                  .number()
-                  .min(1, t("number_min_error", { min: 0 })),
+                  .union([
+                    z.number().min(1, t("number_min_error", { min: 1 })),
+                    z.undefined(),
+                  ])
+                  .refine((val) => val !== undefined, {
+                    message: t("field_required"),
+                  }),
                 is_auto_fill: z.boolean().optional(),
                 num_of_slots: z
-                  .number()
-                  .min(1, t("number_min_error", { min: 0 })),
+                  .union([
+                    z.number().min(1, t("number_min_error", { min: 1 })),
+                    z.undefined(),
+                  ])
+                  .refine((val) => val !== undefined, {
+                    message: t("field_required"),
+                  }),
               }),
               // Schema for open and closed types
               z.object({
                 slot_type: z.enum(["open", "closed"]),
-                name: z.string().min(1, t("field_required")),
-                reason: z.string(),
+                name: z.string().trim().min(1, t("field_required")),
+                reason: z.string().trim(),
                 start_time: z
-                  .string()
+                  .string({ required_error: t("field_required") })
                   .min(1, t("field_required")) as unknown as z.ZodType<Time>,
                 end_time: z
-                  .string()
+                  .string({ required_error: t("field_required") })
                   .min(1, t("field_required")) as unknown as z.ZodType<Time>,
                 slot_size_in_minutes: z.literal(null),
                 tokens_per_slot: z.literal(null),
@@ -166,12 +185,12 @@ export default function CreateScheduleTemplateSheet({
       availabilities: [
         {
           name: "",
-          slot_type: "appointment",
+          slot_type: "appointment" as const,
           reason: "",
           start_time: undefined,
           end_time: undefined,
-          tokens_per_slot: null as unknown as undefined,
-          slot_size_in_minutes: null as unknown as undefined,
+          tokens_per_slot: undefined,
+          slot_size_in_minutes: undefined,
           is_auto_fill: false,
           num_of_slots: 1,
         },
@@ -181,14 +200,14 @@ export default function CreateScheduleTemplateSheet({
 
   const { mutate: createTemplate, isPending } = useMutation({
     mutationFn: mutate(scheduleApis.templates.create, {
-      pathParams: { facility_id: facilityId },
+      pathParams: { facilityId },
     }),
     onSuccess: () => {
       toast.success("Schedule template created successfully");
       setQParams({ sheet: null });
       form.reset();
       queryClient.invalidateQueries({
-        queryKey: ["user-schedule-templates", { facilityId, userId }],
+        queryKey: ["schedule", facilityId, { resourceType, resourceId }],
       });
     },
   });
@@ -198,7 +217,8 @@ export default function CreateScheduleTemplateSheet({
       valid_from: dateQueryString(values.valid_from),
       valid_to: dateQueryString(values.valid_to),
       name: values.name,
-      user: userId,
+      resource_type: resourceType,
+      resource_id: resourceId,
       availabilities: values.availabilities.map(
         (availability) =>
           ({
@@ -254,11 +274,11 @@ export default function CreateScheduleTemplateSheet({
   const updateSlotDuration = (index: number) => {
     const isAutoFill = form.watch(`availabilities.${index}.is_auto_fill`);
     if (isAutoFill) {
-      const duration = calculateSlotDuration(
-        form.watch(`availabilities.${index}.start_time`),
-        form.watch(`availabilities.${index}.end_time`),
-        form.watch(`availabilities.${index}.num_of_slots`),
-      );
+      const start = form.watch(`availabilities.${index}.start_time`);
+      const end = form.watch(`availabilities.${index}.end_time`);
+      const numOfSlots = form.watch(`availabilities.${index}.num_of_slots`);
+      if (!start || !end) return;
+      const duration = calculateSlotDuration(start, end, numOfSlots);
       form.setValue(`availabilities.${index}.slot_size_in_minutes`, duration);
     }
   };
@@ -277,7 +297,7 @@ export default function CreateScheduleTemplateSheet({
           </Button>
         )}
       </SheetTrigger>
-      <SheetContent className="flex min-w-full flex-col bg-gray-100 sm:min-w-fit ">
+      <SheetContent className="flex min-w-full flex-col bg-gray-100 sm:min-w-fit">
         <SheetHeader>
           <SheetTitle>{t("create_schedule_template")}</SheetTitle>
           <SheetDescription className="sr-only">
@@ -317,6 +337,9 @@ export default function CreateScheduleTemplateSheet({
                       <DatePicker
                         date={field.value}
                         onChange={(date) => field.onChange(date)}
+                        disabled={(date) =>
+                          dayjs(date).isBefore(dayjs(), "day")
+                        }
                       />
                       <FormMessage />
                     </FormItem>
@@ -332,6 +355,9 @@ export default function CreateScheduleTemplateSheet({
                       <DatePicker
                         date={field.value}
                         onChange={(date) => field.onChange(date)}
+                        disabled={(date) =>
+                          dayjs(date).isBefore(dayjs(), "day")
+                        }
                       />
                       <FormMessage />
                     </FormItem>
@@ -559,13 +585,19 @@ export default function CreateScheduleTemplateSheet({
                                         <FormControl>
                                           <Input
                                             type="number"
+                                            inputMode="numeric"
+                                            pattern="[0-9]*"
                                             min={1}
                                             defaultValue={1}
                                             {...field}
                                             className="shadow-none"
                                             onChange={(e) => {
+                                              const value =
+                                                e.target.valueAsNumber;
                                               field.onChange(
-                                                e.target.valueAsNumber,
+                                                isNaN(value)
+                                                  ? undefined
+                                                  : value,
                                               );
                                               updateSlotDuration(index);
                                             }}
@@ -593,12 +625,17 @@ export default function CreateScheduleTemplateSheet({
                                   <FormControl>
                                     <Input
                                       type="number"
-                                      min={0}
+                                      inputMode="numeric"
+                                      pattern="[0-9]*"
+                                      min={1}
                                       placeholder="e.g. 10"
                                       {...field}
                                       value={field.value ?? ""}
                                       onChange={(e) => {
-                                        field.onChange(e.target.valueAsNumber);
+                                        const value = e.target.valueAsNumber;
+                                        field.onChange(
+                                          isNaN(value) ? undefined : value,
+                                        );
                                       }}
                                       disabled={form.watch(
                                         `availabilities.${index}.is_auto_fill`,
@@ -624,13 +661,18 @@ export default function CreateScheduleTemplateSheet({
                                   <FormControl>
                                     <Input
                                       type="number"
-                                      min={0}
+                                      inputMode="numeric"
+                                      pattern="[0-9]*"
+                                      min={1}
                                       placeholder="e.g. 1"
                                       {...field}
                                       value={field.value ?? ""}
-                                      onChange={(e) =>
-                                        field.onChange(e.target.valueAsNumber)
-                                      }
+                                      onChange={(e) => {
+                                        const value = e.target.valueAsNumber;
+                                        field.onChange(
+                                          isNaN(value) ? undefined : value,
+                                        );
+                                      }}
                                     />
                                   </FormControl>
                                   <FormMessage />
@@ -682,12 +724,12 @@ export default function CreateScheduleTemplateSheet({
                     ...availabilities,
                     {
                       name: "",
-                      slot_type: "appointment",
+                      slot_type: "appointment" as const,
                       reason: "",
-                      start_time: "00:00",
-                      end_time: "00:00",
-                      tokens_per_slot: null as unknown as number,
-                      slot_size_in_minutes: null as unknown as number,
+                      start_time: undefined,
+                      end_time: undefined,
+                      tokens_per_slot: undefined,
+                      slot_size_in_minutes: undefined,
                       is_auto_fill: false,
                       num_of_slots: 1,
                     },

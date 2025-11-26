@@ -9,6 +9,7 @@ import GenericFilterBadge from "@/CAREUI/display/FilterBadge";
 import PaginationComponent from "@/components/Common/Pagination";
 
 import FiltersCache from "@/Utils/FiltersCache";
+import { QueryParams } from "@/Utils/request/types";
 import { humanizeStrings } from "@/Utils/utils";
 
 export type FilterState = Record<string, unknown>;
@@ -27,10 +28,12 @@ export default function useFilters({
   limit = 14,
   cacheBlacklist = [],
   disableCache = false,
+  defaultQueryParams = {},
 }: {
   limit?: number;
   cacheBlacklist?: string[];
   disableCache?: boolean;
+  defaultQueryParams?: QueryParams;
 }) {
   const { t } = useTranslation();
   const hasPagination = limit > 0;
@@ -73,6 +76,14 @@ export default function useFilters({
   const removeFilter = (param: string) => removeFilters([param]);
 
   useEffect(() => {
+    if (disableCache) {
+      // Clean-up any existing cache if present for this path.
+      FiltersCache.invalidate();
+
+      // Skip cache restoration logic for this usage.
+      return;
+    }
+
     const qParamKeys = Object.keys(qParams);
 
     // If we navigate to a path that has query params set on mount,
@@ -89,6 +100,17 @@ export default function useFilters({
 
     // Restore cache
     setQueryParams(cache);
+  }, []);
+
+  useEffect(() => {
+    const defaults = Object.fromEntries(
+      Object.entries(defaultQueryParams).filter(
+        ([key]) => qParams[key] === undefined,
+      ),
+    );
+    if (Object.keys(defaults).length > 0) {
+      updateQuery(defaults);
+    }
   }, []);
 
   const FilterBadge = ({ name, value, paramKey }: FilterBadgeProps) => {

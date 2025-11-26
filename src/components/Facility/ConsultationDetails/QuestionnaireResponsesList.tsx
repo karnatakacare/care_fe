@@ -1,14 +1,3 @@
-import { useQuery } from "@tanstack/react-query";
-import { t } from "i18next";
-import { Printer } from "lucide-react";
-import { Link, useQueryParams } from "raviger";
-import React from "react";
-import { useTranslation } from "react-i18next";
-
-import { cn } from "@/lib/utils";
-
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   DropdownMenu,
@@ -16,28 +5,40 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
-
-import PaginationComponent from "@/components/Common/Pagination";
-import { CardListSkeleton } from "@/components/Common/SkeletonLoading";
-import { EncounterAccordionLayout } from "@/components/Patient/EncounterAccordionLayout";
-
-import { RESULTS_PER_PAGE_LIMIT } from "@/common/constants";
-
-import routes from "@/Utils/request/api";
-import query from "@/Utils/request/query";
 import { formatDateTime, formatName, properCase } from "@/Utils/utils";
-import { Encounter } from "@/types/emr/encounter";
+import React, { useEffect } from "react";
+
+import { CardListSkeleton } from "@/components/Common/SkeletonLoading";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import patientApi from "@/types/emr/patient/patientApi";
 import { ResponseValue } from "@/types/questionnaire/form";
 import { Question } from "@/types/questionnaire/question";
 import { QuestionnaireResponse } from "@/types/questionnaire/questionnaireResponse";
+import query from "@/Utils/request/query";
+import { PaginatedResponse } from "@/Utils/request/types";
+import { useInfiniteQuery } from "@tanstack/react-query";
+import { t } from "i18next";
+import { Printer } from "lucide-react";
+import { Link } from "raviger";
+import { useTranslation } from "react-i18next";
+import { useInView } from "react-intersection-observer";
 
 interface Props {
-  encounter?: Encounter;
+  encounterId?: string;
   patientId: string;
   isPrintPreview?: boolean;
   onlyUnstructured?: boolean;
   canAccess?: boolean;
+  questionnaireId?: string;
+  renderItem?: (response: QuestionnaireResponse) => React.ReactNode;
+  subjectType?: string;
 }
 
 export function formatValue(
@@ -58,10 +59,10 @@ export function formatValue(
   switch (type) {
     case "dateTime":
       return value instanceof Date
-        ? formatDateTime(value.toISOString())
-        : formatDateTime(value.toString());
-    case "choice":
-      return properCase(value.toString());
+        ? formatDateTime(value.toISOString(), "hh:mm A; DD/MM/YYYY")
+        : formatDateTime(value.toString(), "hh:mm A; DD/MM/YYYY");
+    case "date":
+      return formatDateTime(value.toString());
     case "decimal":
     case "integer":
       return typeof value === "number" ? value.toString() : value.toString();
@@ -116,11 +117,29 @@ function QuestionGroup({
       return acc;
     }, []) || [];
 
-  const midPoint = isSingleGroup
+  // Check if any response has long text (>100 chars)
+  const hasLongText = questionsWithResponses.some((question) => {
+    const response = responses.find((r) => r.question_id === question.id);
+    if (!response) return false;
+
+    const value = response.values[0]?.value;
+    const coding = response.values[0]?.coding;
+    const text = [
+      value?.toString() || "",
+      coding?.display || "",
+      coding?.code || "",
+    ].join(" ");
+
+    return text.length > 50;
+  });
+
+  // Use single column if any response has long text
+  const shouldUseTwoColumns = isSingleGroup && !hasLongText;
+  const midPoint = shouldUseTwoColumns
     ? Math.ceil(questionsWithResponses.length / 2)
     : questionsWithResponses.length;
   const leftQuestions = questionsWithResponses.slice(0, midPoint);
-  const rightQuestions = isSingleGroup
+  const rightQuestions = shouldUseTwoColumns
     ? questionsWithResponses.slice(midPoint)
     : [];
 
@@ -128,28 +147,62 @@ function QuestionGroup({
     const response = responses.find((r) => r.question_id === question.id);
     if (!response) return null;
 
-    const value = response.values[0]?.value;
-    const unit = response.values[0]?.unit || question.unit;
-    const coding = response.values[0]?.coding;
+    const values = response.values;
+    if (!values?.length) return null;
+
+    const hasAnyValue = values.some((v) => v.value || v.coding);
+    if (!hasAnyValue) return null;
 
     return (
-      <TableRow key={question.id}>
+      <TableRow key={question.id} className="flex flex-col md:table-row">
         <TableCell className="py-1 pl-0 align-top">
           <div className="text-sm text-gray-600 break-words whitespace-normal">
             {question.text}
           </div>
         </TableCell>
-        <TableCell className="py-1 pr-0 align-top">
-          <div className="text-sm font-medium break-words whitespace-normal">
-            {formatValue(value, question.type)}
-            {unit && <span className="ml-1 text-gray-600">{unit.code}</span>}
-            {coding && (
-              <span className="ml-1 text-gray-600">
-                {coding.display} ({coding.code})
-              </span>
-            )}
+        <TableCell
+          className="py-1 pr-0 align-top"
+          colSpan={response.note ? 1 : 2}
+        >
+          <div className="text-sm font-medium break-words whitespace-pre-wrap">
+            {values.map((val, idx) => (
+              <React.Fragment key={idx}>
+                {idx > 0 && ", "}
+                {val.value && formatValue(val.value, question.type)}
+                {val.unit && (
+                  <span className="ml-1 text-gray-600">{val.unit.code}</span>
+                )}
+                {val.coding && (
+                  <span className="ml-1 text-gray-600">
+                    {val.coding.display} ({val.coding.code})
+                  </span>
+                )}
+              </React.Fragment>
+            ))}
           </div>
         </TableCell>
+        {response.note && (
+          <TableCell className="py-1 pr-0 align-top text-right md:table-cell">
+            <div className="flex justify-end">
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs shrink-0"
+                  >
+                    {t("see_note")}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="max-w-[90vw] p-4">
+                  <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                    {response.note}
+                  </p>
+                </PopoverContent>
+              </Popover>
+            </div>
+          </TableCell>
+        )}
       </TableRow>
     );
   };
@@ -161,20 +214,20 @@ function QuestionGroup({
       </h3>
       <div
         className={cn("w-full", {
-          "grid md:grid-cols-2 grid-cols-1 gap-8": isSingleGroup,
+          "grid md:grid-cols-2 grid-cols-1 gap-8": shouldUseTwoColumns,
         })}
       >
         {leftQuestions.length > 0 && (
           <div className="w-full">
-            <Table className="table-fixed w-full">
+            <Table className="w-full">
               <TableBody>{leftQuestions.map(renderQuestionRow)}</TableBody>
             </Table>
           </div>
         )}
 
-        {isSingleGroup && rightQuestions.length > 0 && (
+        {shouldUseTwoColumns && rightQuestions.length > 0 && (
           <div className="w-full">
-            <Table className="table-fixed w-full">
+            <Table className="w-full">
               <TableBody>{rightQuestions.map(renderQuestionRow)}</TableBody>
             </Table>
           </div>
@@ -199,45 +252,18 @@ function QuestionGroup({
   );
 }
 
-export function StructuredResponseBadge({
-  type,
-  submitType,
-}: {
-  type: string;
-  submitType: string;
-}) {
-  const { t } = useTranslation();
-
-  const colors = {
-    symptom: "bg-yellow-100 text-yellow-800",
-    diagnosis: "bg-blue-100 text-blue-800",
-    medication_request: "bg-green-100 text-green-800",
-    medication_statement: "bg-purple-100 text-purple-800",
-    follow_up_appointment: "bg-pink-100 text-pink-800",
-  };
-
-  return (
-    <Badge
-      variant="outline"
-      className={`${
-        colors[type as keyof typeof colors] || "bg-gray-100 text-gray-800"
-      } border-none`}
-    >
-      {submitType === "CREATE" ? t("created") : t("updated")}{" "}
-      {properCase(type.replace(/_/g, " "))}
-    </Badge>
-  );
-}
-
 function PrintButton({ item }: { item: QuestionnaireResponse }) {
   const { t } = useTranslation();
 
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="xs" className="[&_svg]:size-3">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="hover:bg-transparent text-gray-500 hover:text-gray-500"
+        >
           <Printer className="size-4" />
-          {t("print")}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
@@ -293,34 +319,68 @@ function ResponseCardContent({ item }: { item: QuestionnaireResponse }) {
                     );
                     if (!response) return null;
 
-                    const value = response.values[0]?.value;
-                    const unit = response.values[0]?.unit || question.unit;
-                    const coding = response.values[0]?.coding;
+                    const values = response.values;
+                    if (!values?.length) return null;
 
-                    if (!value && !coding) return null;
+                    const hasAnyValue = values.some((v) => v.value || v.coding);
+                    if (!hasAnyValue) return null;
 
                     return (
-                      <TableRow key={question.id}>
+                      <TableRow
+                        key={question.id}
+                        className="flex flex-col md:table-row"
+                      >
                         <TableCell className="py-1 pl-0 align-top">
                           <div className="text-sm text-gray-600 break-words whitespace-normal">
                             {question.text}
                           </div>
                         </TableCell>
-                        <TableCell className="py-1 pr-0 align-top">
-                          <div className="text-sm font-medium break-words whitespace-normal">
-                            {formatValue(value, question.type)}
-                            {unit && (
-                              <span className="ml-1 text-gray-600">
-                                {unit.code}
-                              </span>
-                            )}
-                            {coding && (
-                              <span className="ml-1 text-gray-600">
-                                {coding.display} ({coding.code})
-                              </span>
-                            )}
+                        <TableCell
+                          className="py-1 pr-0 align-top"
+                          colSpan={response.note ? 1 : 2}
+                        >
+                          <div className="text-sm font-medium break-words whitespace-pre-wrap">
+                            {values.map((val, idx) => (
+                              <React.Fragment key={idx}>
+                                {idx > 0 && ", "}
+                                {val.value &&
+                                  formatValue(val.value, question.type)}
+                                {val.unit && (
+                                  <span className="ml-1 text-gray-600">
+                                    {val.unit.code}
+                                  </span>
+                                )}
+                                {val.coding && (
+                                  <span className="ml-1 text-gray-600">
+                                    {val.coding.display} ({val.coding.code})
+                                  </span>
+                                )}
+                              </React.Fragment>
+                            ))}
                           </div>
                         </TableCell>
+                        {response.note && (
+                          <TableCell className="py-1 pr-0 align-top text-right md:table-cell">
+                            <div className="flex justify-end">
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 text-xs shrink-0"
+                                  >
+                                    {t("see_note")}
+                                  </Button>
+                                </PopoverTrigger>
+                                <PopoverContent className="max-w-[90vw] p-4">
+                                  <p className="text-sm text-gray-700 whitespace-pre-wrap">
+                                    {response.note}
+                                  </p>
+                                </PopoverContent>
+                              </Popover>
+                            </div>
+                          </TableCell>
+                        )}
                       </TableRow>
                     );
                   })}
@@ -373,16 +433,16 @@ function ResponseCardContent({ item }: { item: QuestionnaireResponse }) {
         )}
       </div>
 
-      <div className="flex items-center justify-between border-t border-gray-200 mt-8 pt-4 text-sm text-gray-500">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between border-t border-gray-200 mt-8 pt-4 text-sm text-gray-500 gap-2">
         <div>
-          <span className="text-gray-600">filed by</span>{" "}
+          <span className="text-gray-600">{t("filed_by")}</span>{" "}
           <span className="font-medium text-gray-700">
             {formatName(item.created_by)}
             {item.created_by?.user_type && ` (${item.created_by.user_type})`}
           </span>
         </div>
         <div>
-          <span className="text-gray-600">at</span>{" "}
+          <span className="text-gray-600">{t("at")}</span>{" "}
           <span className="font-medium text-gray-700">
             {formatDateTime(item.created_date)}
           </span>
@@ -392,12 +452,16 @@ function ResponseCardContent({ item }: { item: QuestionnaireResponse }) {
   );
 }
 
-function ResponseCard({
+export function ResponseCard({
   item,
-  isPrintPreview,
+  onTitleClick,
+  showTitle = true,
+  isPrintPreview = false,
 }: {
   item: QuestionnaireResponse;
   isPrintPreview?: boolean;
+  onTitleClick?: (questionnaireId: string) => void;
+  showTitle?: boolean;
 }) {
   const isStructured = !item.questionnaire;
   const structuredType = Object.keys(item.structured_responses || {})[0];
@@ -406,53 +470,90 @@ function ResponseCard({
       ? properCase(structuredType.replace(/_/g, " "))
       : item.questionnaire?.title || "";
 
-  return isPrintPreview ? (
-    <Card className="shadow-none rounded-xl border border-gray-200">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-xl font-medium">{title}</CardTitle>
+  return (
+    <Card className="shadow-none border rounded-lg">
+      <CardHeader className="flex flex-row items-center pb-2">
+        {showTitle && (
+          <CardTitle
+            className={cn(
+              "text-lg font-medium",
+              onTitleClick && "cursor-pointer hover:bg-gray-100 rounded p-2",
+            )}
+            onClick={() => {
+              if (item.questionnaire?.id && onTitleClick) {
+                onTitleClick(item.questionnaire.id);
+              }
+            }}
+          >
+            {title}
+          </CardTitle>
+        )}
+        {!isPrintPreview && (
+          <div className="ml-auto">
+            <PrintButton item={item} />
+          </div>
+        )}
       </CardHeader>
       <CardContent>
         <ResponseCardContent item={item} />
       </CardContent>
     </Card>
-  ) : (
-    <EncounterAccordionLayout
-      title={isStructured && structuredType ? structuredType : title}
-      actionButton={<PrintButton item={item} />}
-    >
-      <ResponseCardContent item={item} />
-    </EncounterAccordionLayout>
   );
 }
+const RESULTS_PER_PAGE_LIMIT = 10;
 
 export default function QuestionnaireResponsesList({
-  encounter,
+  encounterId,
   patientId,
   isPrintPreview = false,
   onlyUnstructured,
   canAccess = true,
+  questionnaireId,
+  renderItem,
+  subjectType = "encounter",
 }: Props) {
   const { t } = useTranslation();
-  const [qParams, setQueryParams] = useQueryParams<{ page?: number }>();
+  const { ref, inView } = useInView();
 
-  const { data: questionnarieResponses, isLoading } = useQuery({
-    queryKey: ["questionnaireResponses", patientId, qParams],
-    queryFn: query.paginated(routes.getQuestionnaireResponses, {
-      pathParams: { patientId },
-      queryParams: {
-        ...(!isPrintPreview && {
-          limit: RESULTS_PER_PAGE_LIMIT,
-          offset: ((qParams.page ?? 1) - 1) * RESULTS_PER_PAGE_LIMIT,
-        }),
-        encounter: encounter?.id,
-        only_unstructured: onlyUnstructured,
-        subject_type: encounter ? "encounter" : "patient",
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, isLoading } =
+    useInfiniteQuery({
+      queryKey: [
+        "questionnaireResponses",
+        patientId,
+        questionnaireId,
+        encounterId,
+      ],
+      queryFn: async ({ pageParam = 0, signal }) => {
+        const response = await query(patientApi.getQuestionnaireResponses, {
+          pathParams: { patientId },
+          queryParams: {
+            ...(!isPrintPreview && {
+              limit: String(RESULTS_PER_PAGE_LIMIT),
+              offset: String(pageParam),
+            }),
+            encounter: encounterId,
+            only_unstructured: onlyUnstructured,
+            subject_type: subjectType,
+            ...(questionnaireId ? { questionnaire: questionnaireId } : {}),
+          },
+        })({ signal });
+
+        return response as PaginatedResponse<QuestionnaireResponse>;
       },
-      maxPages: isPrintPreview ? undefined : 1,
-      pageSize: isPrintPreview ? 100 : RESULTS_PER_PAGE_LIMIT,
-    }),
-    enabled: canAccess,
-  });
+      initialPageParam: 0,
+      getNextPageParam: (lastPage, allPages) => {
+        const currentOffset = allPages.length * RESULTS_PER_PAGE_LIMIT;
+        return currentOffset < lastPage.count ? currentOffset : null;
+      },
+      select: (data) => data?.pages.flatMap((p) => p.results) || [],
+      enabled: canAccess,
+    });
+
+  const responses = data ?? [];
+  useEffect(() => {
+    if (inView && hasNextPage) fetchNextPage();
+  }, [inView, hasNextPage, fetchNextPage]);
+
   return (
     <div className="gap-4">
       <div className="max-w-full">
@@ -460,57 +561,41 @@ export default function QuestionnaireResponsesList({
           <div className="grid gap-5">
             <CardListSkeleton count={RESULTS_PER_PAGE_LIMIT} />
           </div>
-        ) : (
-          <div>
-            {questionnarieResponses?.results?.length === 0 ? (
-              <Card
-                className={cn(
-                  "p-6",
-                  isPrintPreview && "shadow-none border-gray-200",
-                )}
-              >
-                <div className="text-lg font-medium text-gray-500">
-                  {t("no_questionnaire_responses")}
-                </div>
-              </Card>
-            ) : (
-              <ul className="grid gap-4">
-                {questionnarieResponses?.results?.map(
-                  (item: QuestionnaireResponse) => (
-                    <li key={item.id} className="w-full">
-                      <ResponseCard
-                        key={item.id}
-                        item={item}
-                        isPrintPreview={isPrintPreview}
-                      />
-                    </li>
-                  ),
-                )}
-                {!isPrintPreview && (
-                  <div className="flex w-full items-center justify-center mt-4">
-                    <div
-                      className={cn(
-                        "flex w-full justify-center",
-                        (questionnarieResponses?.count ?? 0) >
-                          RESULTS_PER_PAGE_LIMIT
-                          ? "visible"
-                          : "invisible",
-                      )}
-                    >
-                      <PaginationComponent
-                        cPage={qParams.page ?? 1}
-                        defaultPerPage={RESULTS_PER_PAGE_LIMIT}
-                        data={{
-                          totalCount: questionnarieResponses?.count ?? 0,
-                        }}
-                        onChange={(page) => setQueryParams({ page })}
-                      />
-                    </div>
-                  </div>
-                )}
-              </ul>
+        ) : responses.length === 0 ? (
+          <Card
+            className={cn(
+              "p-6",
+              isPrintPreview && "shadow-none border-gray-200",
             )}
-          </div>
+          >
+            <div className="text-lg font-medium text-gray-500">
+              {t("no_responses_found")}
+            </div>
+          </Card>
+        ) : (
+          <ul className="grid gap-4">
+            {responses.map((item: QuestionnaireResponse) => (
+              <li key={item.id}>
+                {renderItem ? (
+                  renderItem(item)
+                ) : (
+                  <ResponseCard
+                    key={item.id}
+                    item={item}
+                    isPrintPreview={isPrintPreview}
+                  />
+                )}
+              </li>
+            ))}
+
+            {!isPrintPreview && hasNextPage && (
+              <li ref={ref} className="flex justify-center py-4">
+                {isFetchingNextPage && (
+                  <CardListSkeleton count={RESULTS_PER_PAGE_LIMIT} />
+                )}
+              </li>
+            )}
+          </ul>
         )}
       </div>
     </div>

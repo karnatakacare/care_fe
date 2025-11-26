@@ -1,7 +1,7 @@
 import { Suspense, lazy } from "react";
 
 import Loading from "@/components/Common/Loading";
-import { PrintQuestionnaireQuestionnaireResponses } from "@/components/Facility/ConsultationDetails/PrintQuestionnaireQuestionnaireResponses";
+import { PrintAllQuestionnaireResponses } from "@/components/Facility/ConsultationDetails/PrintAllQuestionnaireResponses";
 import { PrintQuestionnaireResponse } from "@/components/Facility/ConsultationDetails/PrintQuestionnaireResponse";
 import QuestionnaireResponseView from "@/components/Facility/ConsultationDetails/QuestionnaireResponseView";
 import { PrintMedicationAdministration } from "@/components/Medicine/MedicationAdministration/PrintMedicationAdministration";
@@ -11,6 +11,7 @@ import TreatmentSummary from "@/components/Patient/TreatmentSummary";
 import { AppRoutes } from "@/Routers/AppRouter";
 import { EncounterShow } from "@/pages/Encounters/EncounterShow";
 import { PrintPrescription } from "@/pages/Encounters/PrintPrescription";
+import { EncounterProvider } from "@/pages/Encounters/utils/EncounterProvider";
 
 const ExcalidrawEditor = lazy(
   () => import("@/components/Common/Drawings/ExcalidrawEditor"),
@@ -25,16 +26,26 @@ const consultationRoutes: AppRoutes = {
         patientId={patientId}
       />
     ),
+  "/facility/:facilityId/patient/:patientId/prescription/:prescriptionId/print":
+    ({ facilityId, patientId, prescriptionId }) => (
+      <PrintPrescription
+        facilityId={facilityId}
+        patientId={patientId}
+        prescriptionId={prescriptionId}
+      />
+    ),
   ...[
     "/facility/:facilityId/patient/:patientId/encounter/:encounterId/questionnaire/:questionnaireId/responses/print",
     "/organization/:organizationId/patient/:patientId/encounter/:encounterId/questionnaire/:questionnaireId/responses/print",
     "/facility/:facilityId/patient/:patientId/questionnaire/:questionnaireId/responses/print",
     "/organization/:organizationId/patient/:patientId/questionnaire/:questionnaireId/responses/print",
     "/patient/:patientId/questionnaire/:questionnaireId/responses/print",
+    "/facility/:facilityId/patient/:patientId/history/questionnaire/:questionnaireId/responses/print",
+    "/patient/:patientId/history/questionnaire/:questionnaireId/responses/print",
   ].reduce((acc: AppRoutes, path) => {
     acc[path] = ({ encounterId, patientId, questionnaireId, facilityId }) => {
       return (
-        <PrintQuestionnaireQuestionnaireResponses
+        <PrintAllQuestionnaireResponses
           encounterId={encounterId}
           patientId={patientId}
           questionnaireId={questionnaireId}
@@ -46,6 +57,8 @@ const consultationRoutes: AppRoutes = {
   }, {}),
   ...[
     "/facility/:facilityId/patient/:patientId/encounter/:encounterId/questionnaire_response/:questionnaireResponseId/print",
+    "/facility/:facilityId/patient/:patientId/history/questionnaire_response/:questionnaireResponseId/print",
+    "/patient/:patientId/history/questionnaire_response/:questionnaireResponseId/print",
     "/organization/:organizationId/patient/:patientId/encounter/:encounterId/questionnaire_response/:questionnaireResponseId/print",
     "/facility/:facilityId/patient/:patientId/questionnaire_response/:questionnaireResponseId/print",
     "/organization/:organizationId/patient/:patientId/questionnaire_response/:questionnaireResponseId/print",
@@ -136,12 +149,13 @@ const consultationRoutes: AppRoutes = {
   ...["facility", "organization"].reduce((acc: AppRoutes, identifier) => {
     acc[`/${identifier}/:id/patient/:patientId/encounter/:encounterId/:tab`] =
       ({ id, encounterId, tab, patientId }) => (
-        <EncounterShow
-          patientId={patientId}
+        <EncounterProvider
           encounterId={encounterId}
-          tab={tab}
+          patientId={patientId}
           facilityId={identifier === "facility" ? id : undefined}
-        />
+        >
+          <EncounterShow tab={tab} />
+        </EncounterProvider>
       );
     return acc;
   }, {}),

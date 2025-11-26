@@ -13,12 +13,10 @@ import Loading from "@/components/Common/Loading";
 
 import useAuthUser from "@/hooks/useAuthUser";
 
-import routes from "@/Utils/request/api";
 import mutate from "@/Utils/request/mutate";
 import query from "@/Utils/request/query";
-import uploadFile from "@/Utils/request/uploadFile";
-import { getAuthorizationHeader } from "@/Utils/request/utils";
-import { formatName, sleep } from "@/Utils/utils";
+import { formatName } from "@/Utils/utils";
+import userApi from "@/types/user/userApi";
 
 export default function UserAvatar({ username }: { username: string }) {
   const { t } = useTranslation();
@@ -28,7 +26,7 @@ export default function UserAvatar({ username }: { username: string }) {
   const canEditAvatar = authUser.is_superuser || authUser.username === username;
 
   const { mutateAsync: mutateAvatarDelete } = useMutation({
-    mutationFn: mutate(routes.deleteProfilePicture, {
+    mutationFn: mutate(userApi.deleteProfilePicture, {
       pathParams: { username },
     }),
     onSuccess: () => {
@@ -41,9 +39,25 @@ export default function UserAvatar({ username }: { username: string }) {
     },
   });
 
+  const { mutateAsync: mutateAvatarUpload } = useMutation({
+    mutationFn: mutate(userApi.uploadProfilePicture, {
+      pathParams: { username },
+    }),
+    onSuccess: () => {
+      setEditAvatar(false);
+      queryClient.invalidateQueries({
+        queryKey: ["getUserDetails", username],
+      });
+      if (authUser.username === username) {
+        queryClient.invalidateQueries({ queryKey: ["currentUser"] });
+      }
+      toast.success(t("avatar_updated_success"));
+    },
+  });
+
   const { data: userData, isLoading } = useQuery({
     queryKey: ["getUserDetails", username],
-    queryFn: query(routes.getUserDetails, {
+    queryFn: query(userApi.get, {
       pathParams: { username },
     }),
   });
@@ -57,33 +71,14 @@ export default function UserAvatar({ username }: { username: string }) {
     onSuccess: () => void,
     onError: () => void,
   ) => {
-    const formData = new FormData();
-    formData.append("profile_picture", file);
-    const url = `${careConfig.apiUrl}/api/v1/users/${userData.username}/profile_picture/`;
-
-    await uploadFile(
-      url,
-      formData,
-      "POST",
-      { Authorization: getAuthorizationHeader() },
-      async (xhr: XMLHttpRequest) => {
-        if (xhr.status === 200) {
-          setEditAvatar(false);
-          await sleep(1000);
-          queryClient.invalidateQueries({
-            queryKey: ["getUserDetails", username],
-          });
-          if (authUser.username === username) {
-            queryClient.invalidateQueries({ queryKey: ["currentUser"] });
-          }
-          toast.success(t("avatar_updated_success"));
-        }
-      },
-      null,
-      () => {
-        onError();
-      },
-    );
+    try {
+      const formData = new FormData();
+      formData.append("profile_picture", file);
+      await mutateAvatarUpload(formData);
+      onSuccess();
+    } catch {
+      onError();
+    }
   };
 
   const handleAvatarDelete = async (
@@ -107,6 +102,7 @@ export default function UserAvatar({ username }: { username: string }) {
         handleUpload={handleAvatarUpload}
         handleDelete={handleAvatarDelete}
         onOpenChange={(open) => setEditAvatar(open)}
+        aspectRatio={1}
       />
       <div>
         <div className="my-4 overflow-visible rounded-lg bg-white px-4 py-5 shadow-sm sm:rounded-lg sm:px-6 flex justify-between">
@@ -127,7 +123,6 @@ export default function UserAvatar({ username }: { username: string }) {
                     onClick={() => setEditAvatar(!editAvatar)}
                     type="button"
                     id="change-avatar"
-                    data-cy="change-avatar"
                     disabled
                   >
                     {t("change_avatar")}
@@ -139,7 +134,6 @@ export default function UserAvatar({ username }: { username: string }) {
                   onClick={() => setEditAvatar(!editAvatar)}
                   type="button"
                   id="change-avatar"
-                  data-cy="change-avatar"
                 >
                   {t("change_avatar")}
                 </Button>

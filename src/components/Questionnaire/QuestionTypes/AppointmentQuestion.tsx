@@ -13,10 +13,14 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { Textarea } from "@/components/ui/textarea";
 
-import { AppointmentSlotPicker } from "@/pages/Appointments/components/AppointmentSlotPicker";
-import { PractitionerSelector } from "@/pages/Appointments/components/PractitionerSelector";
+import { ScheduleResourceFormState } from "@/components/Schedule/ResourceSelector";
+import useAuthUser from "@/hooks/useAuthUser";
+import { AppointmentDateSelection } from "@/pages/Appointments/BookAppointment/AppointmentDateSelection";
+import { AppointmentFormSection } from "@/pages/Appointments/BookAppointment/AppointmentFormSection";
+import { AppointmentSlotPicker } from "@/pages/Appointments/BookAppointment/AppointmentSlotPicker";
+import { TagConfig } from "@/types/emr/tagConfig/tagConfig";
+import useTagConfigs from "@/types/emr/tagConfig/useTagConfig";
 import { QuestionValidationError } from "@/types/questionnaire/batch";
 import {
   QuestionnaireResponse,
@@ -30,11 +34,9 @@ import {
 } from "@/types/questionnaire/validation";
 import {
   CreateAppointmentQuestion,
+  SchedulableResourceType,
   TokenSlot,
 } from "@/types/scheduling/schedule";
-import { UserBase } from "@/types/user/user";
-
-import { FieldError } from "./FieldError";
 
 interface AppointmentQuestionProps {
   question: Question;
@@ -50,14 +52,6 @@ interface AppointmentQuestionProps {
 }
 
 const APPOINTMENT_FIELDS: FieldDefinitions = {
-  REASON: {
-    key: "reason_for_visit",
-    required: true,
-    validate: (value: unknown) => {
-      const str = value as string;
-      return !!str?.trim();
-    },
-  },
   SLOT: {
     key: "slot_id",
     required: true,
@@ -67,8 +61,14 @@ const APPOINTMENT_FIELDS: FieldDefinitions = {
 export function validateAppointmentQuestion(
   value: CreateAppointmentQuestion,
   questionId: string,
+  required: boolean,
 ): QuestionValidationError[] {
-  return validateFields(value, questionId, APPOINTMENT_FIELDS);
+  return validateFields(value, questionId, {
+    SLOT: {
+      ...APPOINTMENT_FIELDS.SLOT,
+      required: required,
+    },
+  });
 }
 
 export function AppointmentQuestion({
@@ -80,21 +80,41 @@ export function AppointmentQuestion({
   facilityId,
 }: AppointmentQuestionProps) {
   const { t } = useTranslation();
-  const [resource, setResource] = useState<UserBase>();
+  const currentUser = useAuthUser();
+  const [selectedResource, setSelectedResource] =
+    useState<ScheduleResourceFormState>({
+      resource: currentUser,
+      resource_type: SchedulableResourceType.Practitioner,
+    });
   const [open, setOpen] = useState(false);
   const { hasError } = useFieldError(question.id, errors);
+  const [selectedDate, setSelectedDate] = useState(new Date());
+  const [selectedSlotId, setSelectedSlotId] = useState<string>();
 
   const values =
     (questionnaireResponse.values?.[0]?.value as CreateAppointmentQuestion[]) ||
     [];
-  const value = values[0] ?? {};
+  const value = values[0] ?? { tags: [], note: "" };
 
   const handleUpdate = (updates: Partial<CreateAppointmentQuestion>) => {
-    updateQuestionnaireResponseCB(
-      [{ type: "appointment", value: [{ ...value, ...updates }] }],
-      questionnaireResponse.question_id,
-      questionnaireResponse.note,
-    );
+    const updatedValue = { ...value, ...updates };
+    if (
+      !updatedValue.note?.trim() &&
+      !updatedValue.slot_id &&
+      !updatedValue.tags?.length
+    ) {
+      updateQuestionnaireResponseCB(
+        [],
+        questionnaireResponse.question_id,
+        questionnaireResponse.note,
+      );
+    } else {
+      updateQuestionnaireResponseCB(
+        [{ type: "appointment", value: [updatedValue] }],
+        questionnaireResponse.question_id,
+        questionnaireResponse.note,
+      );
+    }
   };
 
   // Query to get slot details for display
@@ -109,61 +129,29 @@ export function AppointmentQuestion({
     }
   };
 
+  const tagQueries = useTagConfigs({ ids: value.tags, facilityId });
+  const selectedTags = tagQueries
+    .map((query) => query.data)
+    .filter(Boolean) as TagConfig[];
+
   return (
     <div className="space-y-4">
-      <div>
-        <Label className="mb-2">
-          {t("reason_for_visit")}
-          <span className="text-red-500 ml-0.5">*</span>
-        </Label>
-        <Textarea
-          placeholder={t("reason_for_visit_placeholder")}
-          value={value.reason_for_visit || ""}
-          onChange={(e) => handleUpdate({ reason_for_visit: e.target.value })}
-          disabled={disabled}
-          className={cn(
-            hasError(APPOINTMENT_FIELDS.REASON.key) && "border-red-500",
-          )}
-        />
-        <FieldError
-          fieldKey={APPOINTMENT_FIELDS.REASON.key}
-          questionId={question.id}
-          errors={errors}
-        />
-      </div>
-
-      <div>
-        <Label className="block mb-2">
-          {t("select_practitioner")}
-          <span className="text-red-500 ml-0.5">*</span>
-        </Label>
-        <div
-          className={cn(
-            "rounded-md",
-            !resource &&
-              hasError(APPOINTMENT_FIELDS.SLOT.key) &&
-              "ring-1 ring-red-500",
-          )}
-        >
-          <PractitionerSelector
-            facilityId={facilityId}
-            selected={resource ?? null}
-            onSelect={(user) => {
-              setResource(user ?? undefined);
-              if (value.slot_id) {
-                handleUpdate({ slot_id: undefined });
-                setSelectedSlot(undefined);
-              }
-            }}
-            clearSelection={t("show_all")}
-          />
-        </div>
-      </div>
+      <AppointmentFormSection
+        facilityId={facilityId}
+        selectedTags={selectedTags}
+        setSelectedTags={(tags) =>
+          handleUpdate({ tags: tags.map((tag) => tag.id) })
+        }
+        reason={value.note || ""}
+        setReason={(reason) => handleUpdate({ note: reason })}
+        selectedResource={selectedResource}
+        setSelectedResource={setSelectedResource}
+      />
 
       <div>
         <Label className="block mb-2">
           {t("appointment_slot")}
-          <span className="text-red-500 ml-0.5">*</span>
+          {question.required && <span className="text-red-500 ml-0.5">*</span>}
         </Label>
         <div
           className={cn(
@@ -201,12 +189,12 @@ export function AppointmentQuestion({
                 <Button
                   variant="outline"
                   className="w-full justify-start"
-                  disabled={disabled || !resource}
+                  disabled={disabled || !selectedResource.resource}
                 >
                   <span className="text-gray-500">
-                    {resource
+                    {selectedResource.resource
                       ? t("select_appointment_slot")
-                      : t("select_practitioner_first")}
+                      : t("select_resource")}
                   </span>
                 </Button>
               )}
@@ -215,24 +203,46 @@ export function AppointmentQuestion({
               <SheetHeader>
                 <SheetTitle>{t("select_appointment_slot")}</SheetTitle>
               </SheetHeader>
-              <div className="mt-6">
-                {resource && (
-                  <AppointmentSlotPicker
-                    facilityId={facilityId}
-                    resourceId={resource.id}
-                    onSlotSelect={handleSlotSelect}
-                    selectedSlotId={value.slot_id}
-                    onSlotDetailsChange={setSelectedSlot}
-                  />
-                )}
+              <div className="space-y-4">
+                <AppointmentDateSelection
+                  facilityId={facilityId}
+                  resourceId={selectedResource.resource?.id || undefined}
+                  resourceType={selectedResource.resource_type}
+                  setSelectedDate={setSelectedDate}
+                  selectedDate={selectedDate}
+                />
+                <AppointmentSlotPicker
+                  selectedDate={selectedDate}
+                  facilityId={facilityId}
+                  resourceId={selectedResource.resource?.id || undefined}
+                  resourceType={selectedResource.resource_type}
+                  selectedSlotId={selectedSlotId}
+                  onSlotDetailsChange={setSelectedSlot}
+                  onSlotSelect={setSelectedSlotId}
+                />
+                <div className="flex justify-end gap-2 mt-6">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setOpen(false);
+                      setSelectedSlot(undefined);
+                    }}
+                  >
+                    {t("cancel")}
+                  </Button>
+                  <Button
+                    variant="default"
+                    disabled={!selectedSlotId}
+                    onClick={() => {
+                      handleSlotSelect(selectedSlotId);
+                    }}
+                  >
+                    {t("submit")}
+                  </Button>
+                </div>
               </div>
             </SheetContent>
           </Sheet>
-          <FieldError
-            fieldKey={APPOINTMENT_FIELDS.SLOT.key}
-            questionId={question.id}
-            errors={errors}
-          />
         </div>
       </div>
     </div>

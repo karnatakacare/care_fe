@@ -25,17 +25,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-import mutate from "@/Utils/request/mutate";
-import { Code } from "@/types/questionnaire/code";
+import { Code } from "@/types/base/code/code";
 import {
   TERMINOLOGY_SYSTEMS,
-  ValuesetLookupResponse,
-} from "@/types/valueset/valueset";
-import valuesetApi from "@/types/valueset/valuesetApi";
+  ValueSetLookupResponse,
+} from "@/types/valueSet/valueSet";
+import valueSetApi from "@/types/valueSet/valueSetApi";
+import mutate from "@/Utils/request/mutate";
 
 interface CodingEditorProps {
   code?: Code;
-  questionIndex: number;
+  name: string;
   form: ReturnType<typeof useForm<any>>;
   onChange: (code: Code | undefined) => void;
 }
@@ -44,11 +44,11 @@ export function CodingEditor({
   code,
   onChange,
   form,
-  questionIndex,
+  name,
 }: CodingEditorProps) {
   const { mutate: verifyCode, isPending } = useMutation({
-    mutationFn: mutate(valuesetApi.lookup),
-    onSuccess: (response: ValuesetLookupResponse) => {
+    mutationFn: mutate(valueSetApi.lookup),
+    onSuccess: (response: ValueSetLookupResponse) => {
       if (response.metadata && code) {
         onChange({
           ...code,
@@ -59,7 +59,7 @@ export function CodingEditor({
     },
     onError: (error) => {
       console.error(error);
-      form.setError(`questions.${questionIndex}.code.display`, {
+      form.setError(`${name}.code.display`, {
         type: "manual",
         message: t("code_verification_required"),
       });
@@ -93,14 +93,14 @@ export function CodingEditor({
     <Card>
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <div className="flex items-center w-full justify-between">
-          <Label className="text-base font-medium">Coding Details</Label>
+          <Label className="text-base font-medium">{t("coding_details")}</Label>
           <Button
             variant="ghost"
             size="sm"
             onClick={(e) => {
               e.preventDefault();
               onChange(undefined);
-              form.clearErrors([`questions.${questionIndex}.code`]);
+              form.clearErrors([`${name}.code`]);
             }}
           >
             <CareIcon icon="l-trash-alt" className="mr-2 size-4" />
@@ -113,7 +113,7 @@ export function CodingEditor({
         <div>
           <FormField
             control={form.control}
-            name={`questions.${questionIndex}.code.system`}
+            name={`${name}.code.system`}
             render={({ field }) => (
               <FormItem>
                 <FormLabel>{t("system")}</FormLabel>
@@ -129,7 +129,7 @@ export function CodingEditor({
                       });
                     }}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger ref={field.ref}>
                       <SelectValue placeholder={t("select_system")} />
                     </SelectTrigger>
                     <SelectContent>
@@ -153,7 +153,7 @@ export function CodingEditor({
           <div>
             <FormField
               control={form.control}
-              name={`questions.${questionIndex}.code.code`}
+              name={`${name}.code.code`}
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>{t("code")}</FormLabel>
@@ -167,9 +167,7 @@ export function CodingEditor({
                           code: e.target.value,
                           display: "",
                         });
-                        form.clearErrors([
-                          `questions.${questionIndex}.code.display`,
-                        ]);
+                        form.clearErrors([`${name}.code.display`]);
                       }}
                       placeholder={t("enter_code")}
                     />
@@ -182,7 +180,7 @@ export function CodingEditor({
           <div>
             <FormField
               control={form.control}
-              name={`questions.${questionIndex}.code.display`}
+              name={`${name}.code.display`}
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>{t("display")}</FormLabel>

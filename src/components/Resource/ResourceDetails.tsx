@@ -11,17 +11,16 @@ import { Separator } from "@/components/ui/separator";
 
 import Loading from "@/components/Common/Loading";
 import Page from "@/components/Common/Page";
-import { FacilityModel } from "@/components/Facility/models";
+import { formatPatientAddress } from "@/components/Patient/utils";
 import CommentSection from "@/components/Resource/ResourceCommentSection";
-
-import { RESOURCE_CATEGORY_CHOICES } from "@/common/constants";
-
-import routes from "@/Utils/request/api";
+import { PatientRead } from "@/types/emr/patient/patient";
+import { FacilityRead } from "@/types/facility/facility";
+import { getResourceRequestCategoryEnum } from "@/types/resourceRequest/resourceRequest";
+import resourceRequestApi from "@/types/resourceRequest/resourceRequestApi";
 import query from "@/Utils/request/query";
 import { formatDateTime, formatName } from "@/Utils/utils";
-import { Patient } from "@/types/emr/patient";
 
-function PatientCard({ patient }: { patient: Patient }) {
+function PatientCard({ patient }: { patient: PatientRead }) {
   const { t } = useTranslation();
   return (
     <Card>
@@ -66,7 +65,11 @@ function PatientCard({ patient }: { patient: Patient }) {
           <div className="space-y-1 md:col-span-2">
             <p className="text-sm font-medium">{t("address")}</p>
             <p className="text-sm text-gray-500 whitespace-pre-wrap">
-              {[patient.address].filter(Boolean).join(", ") || "--"}
+              {formatPatientAddress(patient.address) || (
+                <span className="text-gray-500">
+                  {t("no_address_provided")}
+                </span>
+              )}
             </p>
           </div>
         </div>
@@ -80,7 +83,7 @@ function FacilityCard({
   facilityData,
 }: {
   title: string;
-  facilityData: FacilityModel;
+  facilityData: FacilityRead;
 }) {
   const { t } = useTranslation();
   return (
@@ -113,8 +116,8 @@ export default function ResourceDetails({
 
   const { data, isLoading } = useQuery({
     queryKey: ["resource_request", id],
-    queryFn: query(routes.getResourceDetails, {
-      pathParams: { id },
+    queryFn: query(resourceRequestApi.get, {
+      pathParams: { resourceRequestId: id },
     }),
   });
 
@@ -143,7 +146,6 @@ export default function ResourceDetails({
               onClick={() =>
                 navigate(`/facility/${facilityId}/resource/${id}/update`)
               }
-              data-cy="update-status-button"
             >
               <CareIcon icon="l-pen" className="mr-2 size-4" />
               {t("update_status")}
@@ -166,15 +168,15 @@ export default function ResourceDetails({
               <div className="space-y-1">
                 <p className="text-sm font-medium">{t("status")}</p>
                 <Badge>
-                  {t(`resource_status__${data.status.toLowerCase()}`)}
+                  {t(`resource_request_status__${data.status.toLowerCase()}`)}
                 </Badge>
               </div>
               <div className="space-y-1">
                 <p className="text-sm font-medium">{t("category")}</p>
                 <p className="text-sm text-gray-500">
-                  {RESOURCE_CATEGORY_CHOICES.find(
-                    (item) => item.id === data.category,
-                  )?.text || "--"}
+                  {t(
+                    `resource_request_category__${getResourceRequestCategoryEnum(data.category)}`,
+                  )}
                 </p>
               </div>
               <div className="space-y-1">
@@ -257,7 +259,7 @@ export default function ResourceDetails({
               <div className="space-y-1">
                 <p className="text-sm font-medium">{t("last_modified_by")}</p>
                 <p className="text-sm text-gray-500">
-                  {formatName(data.updated_by)}
+                  {data.updated_by ? formatName(data.updated_by) : "--"}
                 </p>
                 <p className="text-xs text-gray-500">
                   {formatDateTime(data.modified_date)}

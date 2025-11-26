@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import dayjs from "dayjs";
 import { navigate } from "raviger";
 import { Fragment, useState } from "react";
@@ -8,13 +9,16 @@ import CareIcon from "@/CAREUI/icons/CareIcon";
 
 import { Button } from "@/components/ui/button";
 
+import { PatientAddressLink } from "@/components/Patient/PatientAddressLink";
 import { PatientProps } from "@/components/Patient/PatientDetailsTab";
+import TagAssignmentSheet from "@/components/Tags/TagAssignmentSheet";
 
 import { getPermissions } from "@/common/Permissions";
 import { GENDER_TYPES } from "@/common/constants";
 
 import { PLUGIN_Component } from "@/PluginEngine";
 import { formatPatientAge } from "@/Utils/utils";
+import { formatPatientAddress } from "@/components/Patient/utils";
 import { usePermissions } from "@/context/PermissionContext";
 import {
   Organization,
@@ -25,6 +29,7 @@ import {
 export const Demography = (props: PatientProps) => {
   const { patientData, facilityId } = props;
   const patientId = patientData.id;
+  const queryClient = useQueryClient();
   const { t } = useTranslation();
   const { hasPermission } = usePermissions();
   const { canWritePatient } = getPermissions(
@@ -33,7 +38,6 @@ export const Demography = (props: PatientProps) => {
   );
 
   const [activeSection, _setActiveSection] = useState<string | null>(null);
-
   const patientGender = GENDER_TYPES.find(
     (i) => i.id === patientData.gender,
   )?.text;
@@ -46,12 +50,18 @@ export const Demography = (props: PatientProps) => {
   };
 
   const handleEditClick = (sectionId: string) => {
-    if (facilityId) {
-      navigate(
-        `/facility/${facilityId}/patient/${patientId}/update?section=${sectionId}`,
-      );
-    } else {
-      navigate(`/patient/${patientId}/update?section=${sectionId}`);
+    if (sectionId === "tags") {
+      navigate(`/patient/${patientId}/tags`);
+      return;
+    }
+    if (sectionId === "general-info") {
+      if (facilityId) {
+        navigate(
+          `/facility/${facilityId}/patient/${patientId}/update?section=${sectionId}`,
+        );
+      } else {
+        navigate(`/patient/${patientId}/update?section=${sectionId}`);
+      }
     }
   };
 
@@ -104,6 +114,7 @@ export const Demography = (props: PatientProps) => {
     id: string;
     hidden?: boolean;
     allowEdit?: boolean;
+    editComponent?: React.ReactNode;
     details: (React.ReactNode | { label: string; value: React.ReactNode })[];
   };
 
@@ -133,7 +144,7 @@ export const Demography = (props: PatientProps) => {
   const data: Data[] = [
     {
       id: "general-info",
-      allowEdit: canWritePatient,
+      allowEdit: canWritePatient && !!props.facilityId,
       details: [
         <PLUGIN_Component
           key="patient_details_tab__demography__general_info"
@@ -160,7 +171,7 @@ export const Demography = (props: PatientProps) => {
                 className="text-sm font-normal text-sky-600 hover:text-sky-300"
                 rel="noreferrer"
               >
-                <CareIcon icon="l-whatsapp" /> Chat on WhatsApp
+                <CareIcon icon="l-whatsapp" /> {t("chat_on_whatsapp")}
               </a>
             </div>
           ),
@@ -192,23 +203,73 @@ export const Demography = (props: PatientProps) => {
         />,
         {
           label: t("current_address"),
-          value: patientData.address,
+          value: (
+            <div className="flex flex-col gap-2">
+              <span>
+                {formatPatientAddress(patientData.address) || (
+                  <span className="text-gray-500 font-medium">
+                    {t("no_address_provided")}
+                  </span>
+                )}
+              </span>
+              <PatientAddressLink address={patientData.address} />
+            </div>
+          ),
         },
         {
           label: t("permanent_address"),
-          value: patientData.permanent_address,
+          value: (
+            <div className="flex flex-col gap-2">
+              <span>
+                {formatPatientAddress(patientData.permanent_address) || (
+                  <span className="text-gray-500 font-medium">
+                    {t("no_address_provided")}
+                  </span>
+                )}
+              </span>
+              <PatientAddressLink address={patientData.permanent_address} />
+            </div>
+          ),
         },
         ...getGeoOrgDetails(patientData.geo_organization),
       ],
+    },
+    {
+      id: "identifiers",
+      allowEdit: false,
+      details: patientData.instance_identifiers
+        ?.filter(({ config }) => !config.config.auto_maintained)
+        .map((i) => ({
+          label: i.config.config.display,
+          value: i.value,
+        })),
+    },
+    {
+      id: "tags",
+      allowEdit: canWritePatient,
+      editComponent: (
+        <TagAssignmentSheet
+          entityType="patient"
+          entityId={patientId}
+          currentTags={patientData.instance_tags}
+          onUpdate={() => {
+            queryClient.invalidateQueries({
+              queryKey: ["patient", patientId],
+            });
+          }}
+          canWrite={canWritePatient}
+        />
+      ),
+      details: patientData.instance_tags.map((t) => ({
+        label: t.parent ? t.parent.display : t.display,
+        value: t.display,
+      })),
     },
   ];
 
   return (
     <div>
-      <section
-        className="mt-8 w-full items-start gap-6 px-3 md:px-0 lg:flex 2xl:gap-8"
-        data-testid="patient-details"
-      >
+      <section className="mt-8 w-full items-start gap-6 px-3 md:px-0 lg:flex 2xl:gap-8">
         <div className="sticky top-20 hidden text-sm font-medium text-gray-600 lg:flex lg:basis-1/5 lg:flex-col gap-2">
           {data
             .filter((s) => !s.hidden)
@@ -255,17 +316,22 @@ export const Demography = (props: PatientProps) => {
                   <hr className="mb-1 mr-5 h-1 w-5 border-0 bg-blue-500" />
                   <div className="flex flex-row items-center justify-between gap-x-4 mb-4 mr-4">
                     <h1 className="text-xl">{t(`patient__${subtab.id}`)}</h1>
-                    {subtab.allowEdit && (
-                      <Button
-                        data-cy="edit-patient-button"
-                        variant="outline"
-                        disabled={!!patientData.deceased_datetime}
-                        onClick={() => handleEditClick(subtab.id)}
-                      >
-                        <CareIcon icon="l-edit-alt" className="text-md pr-1" />
-                        {t("edit")}
-                      </Button>
-                    )}
+                    {subtab.allowEdit &&
+                      (subtab.editComponent ? (
+                        subtab.editComponent
+                      ) : (
+                        <Button
+                          variant="outline"
+                          disabled={false}
+                          onClick={() => handleEditClick(subtab.id)}
+                        >
+                          <CareIcon
+                            icon="l-edit-alt"
+                            className="text-md pr-1"
+                          />
+                          {t("edit")}
+                        </Button>
+                      ))}
                   </div>
                   <div className="mb-8 mt-2 grid grid-cols-1 gap-x-4 gap-y-2 sm:grid-cols-2 md:gap-y-8">
                     {subtab.details.map((detail, j) =>

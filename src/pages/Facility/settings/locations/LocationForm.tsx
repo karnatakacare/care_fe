@@ -28,9 +28,13 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
-import routes from "@/Utils/request/api";
 import mutate from "@/Utils/request/mutate";
 import query from "@/Utils/request/query";
+import {
+  BatchRequestBody,
+  BatchRequestResponse,
+} from "@/types/base/batch/batch";
+import batchApi from "@/types/base/batch/batchApi";
 import {
   LocationFormOptions,
   type LocationWrite,
@@ -38,10 +42,6 @@ import {
   type Status,
 } from "@/types/location/location";
 import locationApi from "@/types/location/locationApi";
-import type {
-  BatchRequestBody,
-  BatchSubmissionResult,
-} from "@/types/questionnaire/batch";
 
 interface Props {
   facilityId: string;
@@ -73,7 +73,6 @@ export default function LocationForm({
     numberOfBeds: z.string().optional(),
     customizeNames: z.boolean().default(false),
     organizations: z.array(z.string()).default([]),
-    availability_status: z.enum(["available", "unavailable"] as const),
     bedNames: z
       .array(
         z.object({
@@ -96,12 +95,11 @@ export default function LocationForm({
     numberOfBeds: "2",
     customizeNames: false,
     organizations: [],
-    availability_status: "available",
     bedNames: [],
   };
 
   const { data: location, isLoading } = useQuery({
-    queryKey: ["location", locationId],
+    queryKey: ["location", facilityId, locationId],
     queryFn: query(locationApi.get, {
       pathParams: { facility_id: facilityId, id: locationId },
     }),
@@ -182,7 +180,6 @@ export default function LocationForm({
         form: location.form,
         parent: parentId || null,
         organizations: [],
-        availability_status: location.availability_status || "available",
         customizeNames: false,
         bedNames: [],
       });
@@ -205,8 +202,8 @@ export default function LocationForm({
   });
 
   const { mutate: submitBatch } = useMutation({
-    mutationFn: mutate(routes.batchRequest),
-    onSuccess: (data: { results: BatchSubmissionResult[] }) => {
+    mutationFn: mutate(batchApi.batchRequest),
+    onSuccess: (data: BatchRequestResponse) => {
       toast.success(
         t("bed_created_notification", { count: data.results.length }),
       );
@@ -284,6 +281,10 @@ export default function LocationForm({
               <FormLabel>{t("location_form")}</FormLabel>
               <Select
                 onValueChange={(value) => {
+                  if (value === "bd" && !parentId) {
+                    toast.error(t("bed_requires_parent_location"));
+                    return;
+                  }
                   field.onChange(value);
                   if (value !== "bd") {
                     form.setValue("enableBulkCreation", false);
@@ -295,10 +296,7 @@ export default function LocationForm({
                 disabled={!!locationId}
               >
                 <FormControl>
-                  <SelectTrigger
-                    className="w-full"
-                    data-cy="location-form-options"
-                  >
+                  <SelectTrigger className="w-full" ref={field.ref}>
                     <SelectValue />
                   </SelectTrigger>
                 </FormControl>
@@ -326,7 +324,6 @@ export default function LocationForm({
                   <Checkbox
                     checked={field.value}
                     onCheckedChange={field.onChange}
-                    data-cy="enable-bulk-creation-checkbox"
                   />
                 </FormControl>
                 <div className="space-y-1 leading-none">
@@ -349,7 +346,7 @@ export default function LocationForm({
                 <FormLabel>{t("number_of_beds")}</FormLabel>
                 <Select onValueChange={field.onChange} value={field.value}>
                   <FormControl>
-                    <SelectTrigger data-cy="bed-counts-select">
+                    <SelectTrigger ref={field.ref}>
                       <SelectValue placeholder={t("select_number_of_beds")} />
                     </SelectTrigger>
                   </FormControl>
@@ -374,7 +371,7 @@ export default function LocationForm({
             <FormItem>
               <FormLabel aria-required>{t("name")}</FormLabel>
               <FormControl>
-                <Input {...field} data-cy="location-name-input" />
+                <Input {...field} />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -488,11 +485,7 @@ export default function LocationForm({
             <FormItem>
               <FormLabel>{t("description")}</FormLabel>
               <FormControl>
-                <Textarea
-                  {...field}
-                  placeholder="Description"
-                  data-cy="location-description"
-                />
+                <Textarea {...field} placeholder="Description" />
               </FormControl>
               <FormMessage />
             </FormItem>
@@ -508,7 +501,7 @@ export default function LocationForm({
                 <FormLabel>{t("status")}</FormLabel>
                 <Select onValueChange={field.onChange} value={field.value}>
                   <FormControl>
-                    <SelectTrigger data-cy="location-status">
+                    <SelectTrigger ref={field.ref}>
                       <SelectValue />
                     </SelectTrigger>
                   </FormControl>
@@ -533,7 +526,7 @@ export default function LocationForm({
                 <FormLabel>{t("operational_status")}</FormLabel>
                 <Select onValueChange={field.onChange} value={field.value}>
                   <FormControl>
-                    <SelectTrigger data-cy="operational-status">
+                    <SelectTrigger ref={field.ref}>
                       <SelectValue />
                     </SelectTrigger>
                   </FormControl>

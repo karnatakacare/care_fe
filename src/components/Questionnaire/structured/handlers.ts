@@ -8,7 +8,7 @@ import { readFileAsDataURL } from "@/Utils/utils";
 
 interface StructuredHandlerContext {
   patientId: string;
-  encounterId: string;
+  encounterId?: string;
   facilityId?: string;
 }
 
@@ -26,11 +26,19 @@ type StructuredHandler<T extends StructuredQuestionType> = {
   >;
 };
 
+const sanitizeNote = (note?: string | null): string | undefined => {
+  return note?.trim() ?? undefined;
+};
+
 export const structuredHandlers: {
   [K in StructuredQuestionType]: StructuredHandler<K>;
 } = {
   allergy_intolerance: {
     getRequests: async (allergies, { patientId, encounterId }) => {
+      if (!encounterId || allergies.length === 0) {
+        return [];
+      }
+
       return [
         {
           url: `/api/v1/patient/${patientId}/allergy_intolerance/upsert/`,
@@ -38,6 +46,7 @@ export const structuredHandlers: {
           body: {
             datapoints: allergies.map((allergy) => ({
               ...allergy,
+              note: sanitizeNote(allergy.note),
               encounter: encounterId,
             })),
           },
@@ -48,6 +57,10 @@ export const structuredHandlers: {
   },
   medication_request: {
     getRequests: async (medications, { patientId, encounterId }) => {
+      if (medications.length === 0) {
+        return [];
+      }
+
       return [
         {
           url: `/api/v1/patient/${patientId}/medication/request/upsert/`,
@@ -55,8 +68,10 @@ export const structuredHandlers: {
           body: {
             datapoints: medications.map((medication) => ({
               ...medication,
+              note: sanitizeNote(medication.note),
               encounter: encounterId,
               patient: patientId,
+              requester: medication.requester?.id,
             })),
           },
           reference_id: "medication_request",
@@ -66,6 +81,10 @@ export const structuredHandlers: {
   },
   medication_statement: {
     getRequests: async (medications, { patientId, encounterId }) => {
+      if (medications.length === 0) {
+        return [];
+      }
+
       return [
         {
           url: `/api/v1/patient/${patientId}/medication/statement/upsert/`,
@@ -84,6 +103,10 @@ export const structuredHandlers: {
   },
   symptom: {
     getRequests: async (symptoms, { patientId, encounterId }) => {
+      if (!encounterId || symptoms.length === 0) {
+        return [];
+      }
+
       return [
         {
           url: `/api/v1/patient/${patientId}/symptom/upsert/`,
@@ -91,6 +114,7 @@ export const structuredHandlers: {
           body: {
             datapoints: symptoms.map((symptom) => ({
               ...symptom,
+              note: sanitizeNote(symptom.note),
               encounter: encounterId,
             })),
           },
@@ -101,17 +125,22 @@ export const structuredHandlers: {
   },
   diagnosis: {
     getRequests: async (diagnoses, { patientId, encounterId }) => {
+      const results = diagnoses.filter((diagnosis) => diagnosis.dirty);
+
+      if (!encounterId || results.length === 0) {
+        return [];
+      }
+
       return [
         {
           url: `/api/v1/patient/${patientId}/diagnosis/upsert/`,
           method: "POST",
           body: {
-            datapoints: diagnoses
-              .filter((diagnosis) => diagnosis.dirty)
-              .map((diagnosis) => ({
-                ...diagnosis,
-                encounter: encounterId,
-              })),
+            datapoints: results.map((diagnosis) => ({
+              ...diagnosis,
+              note: sanitizeNote(diagnosis.note),
+              encounter: encounterId,
+            })),
           },
           reference_id: "diagnosis",
         },
@@ -126,7 +155,6 @@ export const structuredHandlers: {
       }
       return encounters.map((encounter) => {
         const body: RequestTypeFor<"encounter"> = {
-          organizations: [],
           patient: patientId,
           status: encounter.status,
           encounter_class: encounter.encounter_class,
@@ -149,14 +177,15 @@ export const structuredHandlers: {
   },
   appointment: {
     getRequests: async (appointment, { facilityId, patientId }) => {
-      const { reason_for_visit, slot_id } = appointment[0];
+      const { note, slot_id, tags } = appointment[0];
       return [
         {
           url: `/api/v1/facility/${facilityId}/slots/${slot_id}/create_appointment/`,
           method: "POST",
           body: {
-            reason_for_visit,
+            note,
             patient: patientId,
+            tags,
           },
           reference_id: "appointment",
         },
@@ -192,6 +221,36 @@ export const structuredHandlers: {
           deceased_datetime: timeOfDeath,
         },
         reference_id: "time_of_death",
+      }));
+    },
+  },
+  charge_item: {
+    getRequests: async (chargeItems, { facilityId }) => {
+      return [
+        {
+          url: `/api/v1/facility/${facilityId}/charge_item/apply_charge_item_defs/`,
+          method: "POST",
+          body: {
+            requests: chargeItems,
+          },
+          reference_id: "charge_item",
+        },
+      ];
+    },
+  },
+  service_request: {
+    getRequests: async (serviceRequests, { facilityId }) => {
+      return serviceRequests.map((serviceRequest) => ({
+        url: `/api/v1/facility/${facilityId}/service_request/apply_activity_definition/`,
+        method: "POST",
+        body: {
+          ...serviceRequest,
+          service_request: {
+            ...serviceRequest.service_request,
+            requester: serviceRequest.service_request.requester.id,
+          },
+        },
+        reference_id: "service_request",
       }));
     },
   },

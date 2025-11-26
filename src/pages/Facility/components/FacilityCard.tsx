@@ -9,14 +9,16 @@ import { Avatar } from "@/components/Common/Avatar";
 import { FacilityMapsLink } from "@/components/Facility/FacilityMapLink";
 
 import { FeatureBadge } from "@/pages/Facility/Utils";
-import { FacilityData } from "@/types/facility/facility";
+import { FacilityPublicRead, FacilityRead } from "@/types/facility/facility";
+import { useTranslation } from "react-i18next";
 
 interface Props {
-  facility: FacilityData;
+  facility: FacilityRead | FacilityPublicRead;
   className?: string;
 }
 
 export function FacilityCard({ facility, className }: Props) {
+  const { t } = useTranslation();
   return (
     <Card className={cn("overflow-hidden bg-white", className)}>
       <div className="flex flex-col h-full">
@@ -39,8 +41,8 @@ export function FacilityCard({ facility, className }: Props) {
                 {[facility.address].filter(Boolean).join(", ")}
                 {facility.latitude && facility.longitude && (
                   <FacilityMapsLink
-                    latitude={facility.latitude.toString()}
-                    longitude={facility.longitude.toString()}
+                    latitude={facility.latitude}
+                    longitude={facility.longitude}
                   />
                 )}
               </p>
@@ -60,7 +62,9 @@ export function FacilityCard({ facility, className }: Props) {
         <div className="mt-auto border-t border-gray-100 bg-gray-50 p-4">
           <div className="flex justify-end">
             <Button variant="outline" asChild>
-              <Link href={`/facility/${facility.id}`}>View Facility</Link>
+              <Link href={`/facility/${facility.id}`}>
+                {t("view_facility")}
+              </Link>
             </Button>
           </div>
         </div>

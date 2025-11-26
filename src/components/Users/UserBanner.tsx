@@ -3,11 +3,15 @@ import { TooltipComponent } from "@/components/ui/tooltip";
 import { Avatar } from "@/components/Common/Avatar";
 
 import { formatName } from "@/Utils/utils";
-import { UserBase } from "@/types/user/user";
+import { UserReadMinimal } from "@/types/user/user";
 
 import { UserStatusIndicator } from "./UserListAndCard";
 
-export default function UserBanner({ userData }: { userData: UserBase }) {
+export default function UserBanner({
+  userData,
+}: {
+  userData: UserReadMinimal;
+}) {
   if (!userData) {
     return;
   }
@@ -38,7 +42,7 @@ export default function UserBanner({ userData }: { userData: UserBase }) {
           <TooltipComponent content={userData.username} side="bottom">
             <p
               id="username"
-              className="text-sm font-light leading-relaxed text-secondary-600 truncate"
+              className="text-sm font-light leading-relaxed text-secondary-600 w-fit"
             >
               {userData.username}
             </p>

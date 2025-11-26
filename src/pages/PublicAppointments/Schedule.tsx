@@ -18,23 +18,23 @@ import { Textarea } from "@/components/ui/textarea";
 
 import { Avatar } from "@/components/Common/Avatar";
 import Loading from "@/components/Common/Loading";
-import { FacilityModel } from "@/components/Facility/models";
 
 import useAppHistory from "@/hooks/useAppHistory";
 import { usePatientContext } from "@/hooks/usePatientUser";
 
-import routes from "@/Utils/request/api";
 import mutate from "@/Utils/request/mutate";
 import query from "@/Utils/request/query";
 import { dateQueryString, formatName } from "@/Utils/utils";
-import { TokenSlotButton } from "@/pages/Appointments/components/AppointmentSlotPicker";
+import { TokenSlotButton } from "@/pages/Appointments/BookAppointment/AppointmentSlotPicker";
 import { groupSlotsByAvailability } from "@/pages/Appointments/utils";
+import publicFacilityApi from "@/types/facility/publicFacilityApi";
 import PublicAppointmentApi from "@/types/scheduling/PublicAppointmentApi";
 import {
-  Appointment,
-  AppointmentCreateRequest,
+  PublicAppointment,
+  SchedulableResourceType,
   TokenSlot,
 } from "@/types/scheduling/schedule";
+import scheduleApis from "@/types/scheduling/scheduleApi";
 
 interface AppointmentsProps {
   facilityId: string;
@@ -57,18 +57,16 @@ export function ScheduleAppointment(props: AppointmentsProps) {
 
   if (!staffId) {
     toast.error(t("staff_username_not_found"));
-    navigate(`/facility/${facilityId}/`);
+    navigate(`/facility/${facilityId}`);
   } else if (!tokenData) {
     toast.error(t("phone_number_not_found"));
     navigate(`/facility/${facilityId}/appointments/${staffId}/otp/send`);
   }
 
-  const { data: appointmentData } = useQuery<{ results: Appointment[] }>({
+  const { data: appointmentData } = useQuery({
     queryKey: ["appointment", tokenData?.phoneNumber],
     queryFn: query(PublicAppointmentApi.getAppointments, {
-      headers: {
-        Authorization: `Bearer ${tokenData?.token}`,
-      },
+      headers: { Authorization: `Bearer ${tokenData?.token}` },
     }),
     enabled: !!appointmentId && !!tokenData?.token,
   });
@@ -79,18 +77,17 @@ export function ScheduleAppointment(props: AppointmentsProps) {
 
   useEffect(() => {
     if (appointment) {
-      setReason(appointment.reason_for_visit);
+      setReason(appointment.note);
     }
   }, [appointment]);
 
-  const { data: facilityResponse, error: facilityError } =
-    useQuery<FacilityModel>({
-      queryKey: ["facility", facilityId],
-      queryFn: query(routes.getAnyFacility, {
-        pathParams: { id: facilityId },
-        silent: true,
-      }),
-    });
+  const { data: facilityResponse, error: facilityError } = useQuery({
+    queryKey: ["facility", facilityId],
+    queryFn: query(publicFacilityApi.getAny, {
+      pathParams: { id: facilityId },
+      silent: true,
+    }),
+  });
 
   if (facilityError) {
     toast.error(t("error_fetching_facility_data"));
@@ -98,9 +95,12 @@ export function ScheduleAppointment(props: AppointmentsProps) {
 
   const { data: userData, error: userError } = useQuery({
     queryKey: ["user", facilityId, staffId],
-    queryFn: query(routes.getScheduleAbleFacilityUser, {
-      pathParams: { facility_id: facilityId, user_id: staffId },
-    }),
+    queryFn: query(
+      scheduleApis.appointments.getPublicScheduleableFacilityUser,
+      {
+        pathParams: { facility_id: facilityId, user_id: staffId },
+      },
+    ),
     enabled: !!facilityId && !!staffId,
   });
 
@@ -113,7 +113,8 @@ export function ScheduleAppointment(props: AppointmentsProps) {
     queryFn: query(PublicAppointmentApi.getSlotsForDay, {
       body: {
         facility: facilityId,
-        user: staffId,
+        resource_type: SchedulableResourceType.Practitioner,
+        resource_id: staffId,
         day: dateQueryString(selectedDate),
       },
       headers: {
@@ -123,10 +124,17 @@ export function ScheduleAppointment(props: AppointmentsProps) {
     }),
     select: (data: { results: TokenSlot[] }) => {
       return data.results.filter((slot) => {
-        return !isWithinInterval(new Date(), {
+        // Filter out slots that are happening right now
+        const isCurrentlyActive = isWithinInterval(new Date(), {
           start: slot.start_datetime,
           end: slot.end_datetime,
         });
+
+        // Filter out the current appointment's slot when rescheduling
+        const isCurrentAppointmentSlot =
+          appointment && slot.id === appointment.token_slot.id;
+
+        return !isCurrentlyActive && !isCurrentAppointmentSlot;
       });
     },
     enabled: !!selectedDate && !!tokenData.token,
@@ -146,15 +154,13 @@ export function ScheduleAppointment(props: AppointmentsProps) {
 
   const { mutate: createAppointment, isPending: isCreatingAppointment } =
     useMutation({
-      mutationFn: (body: AppointmentCreateRequest) =>
-        mutate(PublicAppointmentApi.createAppointment, {
-          pathParams: { id: selectedSlot?.id || "" },
-          body,
-          headers: {
-            Authorization: `Bearer ${tokenData.token}`,
-          },
-        })(body),
-      onSuccess: (data: Appointment) => {
+      mutationFn: mutate(PublicAppointmentApi.createAppointment, {
+        pathParams: { id: selectedSlot?.id || "" },
+        headers: {
+          Authorization: `Bearer ${tokenData.token}`,
+        },
+      }),
+      onSuccess: (data: PublicAppointment) => {
         toast.success(t("appointment_created_success"));
         queryClient.invalidateQueries({
           queryKey: [
@@ -175,19 +181,19 @@ export function ScheduleAppointment(props: AppointmentsProps) {
           Authorization: `Bearer ${tokenData.token}`,
         },
       }),
-      onSuccess: (appointment: Appointment) => {
+      onSuccess: (appointment: PublicAppointment) => {
         toast.success(t("appointment_cancelled"));
         queryClient.invalidateQueries({
           queryKey: ["appointment", tokenData.phoneNumber],
         });
         createAppointment({
-          reason_for_visit: reason,
+          note: reason,
           patient: appointment.patient.id,
         });
       },
     });
 
-  const handleRescheduleAppointment = (appointment: Appointment) => {
+  const handleRescheduleAppointment = (appointment: PublicAppointment) => {
     cancelAppointment({
       appointment: appointment.id,
       patient: appointment.patient.id,
@@ -275,9 +281,9 @@ export function ScheduleAppointment(props: AppointmentsProps) {
                 {formatName(userData)}
               </span>
               <div>
-                <Label className="mb-2">{t("reason_for_visit")}</Label>
+                <Label className="mb-2">{t("note")}</Label>
                 <Textarea
-                  placeholder={t("reason_for_visit_placeholder")}
+                  placeholder={t("appointment_note")}
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                 />
@@ -334,13 +340,14 @@ export function ScheduleAppointment(props: AppointmentsProps) {
                   if (appointmentId && appointment) {
                     handleRescheduleAppointment(appointment);
                   } else {
-                    localStorage.setItem(
-                      "selectedSlot",
-                      JSON.stringify(selectedSlot),
-                    );
-                    localStorage.setItem("reason", reason);
                     navigate(
                       `/facility/${facilityId}/appointments/${staffId}/patient-select`,
+                      {
+                        query: {
+                          slotId: selectedSlot?.id,
+                          reason: reason,
+                        },
+                      },
                     );
                   }
                 }}

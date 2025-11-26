@@ -1,13 +1,14 @@
 import { StructuredQuestionType } from "@/components/Questionnaire/data/StructuredFormData";
 
+import { Code } from "@/types/base/code/code";
+import { ApplyChargeItemDefinitionRequest } from "@/types/billing/chargeItem/chargeItem";
 import { AllergyIntoleranceRequest } from "@/types/emr/allergyIntolerance/allergyIntolerance";
 import { DiagnosisRequest } from "@/types/emr/diagnosis/diagnosis";
-import { EncounterEditRequest } from "@/types/emr/encounter";
-import { MedicationRequest } from "@/types/emr/medicationRequest";
+import { EncounterEdit } from "@/types/emr/encounter/encounter";
+import { MedicationRequestCreate } from "@/types/emr/medicationRequest/medicationRequest";
 import { MedicationStatementRequest } from "@/types/emr/medicationStatement";
 import { SymptomRequest } from "@/types/emr/symptom/symptom";
-import { FileUploadQuestion } from "@/types/files/files";
-import { Code } from "@/types/questionnaire/code";
+import { FileUploadQuestion } from "@/types/files/file";
 import { CreateAppointmentQuestion } from "@/types/scheduling/schedule";
 
 /**
@@ -25,17 +26,19 @@ export type ResponseValue =
   | RV<"number", number | undefined>
   | RV<"boolean", boolean | undefined>
   | RV<"dateTime", Date | undefined>
+  | RV<"date", Date | undefined>
   | RV<"quantity", number | undefined>
   | RV<"allergy_intolerance", AllergyIntoleranceRequest[]>
-  | RV<"medication_request", MedicationRequest[]>
+  | RV<"medication_request", MedicationRequestCreate[]>
   | RV<"medication_statement", MedicationStatementRequest[]>
   | RV<"symptom", SymptomRequest[]>
   | RV<"diagnosis", DiagnosisRequest[]>
-  | RV<"encounter", EncounterEditRequest[]>
+  | RV<"encounter", EncounterEdit[]>
   | RV<"appointment", CreateAppointmentQuestion[]>
   | RV<"time_of_death", string[]>
   | RV<"files", FileUploadQuestion[]>
-  | RV<"time", string | undefined>;
+  | RV<"time", string | undefined>
+  | RV<"charge_item", ApplyChargeItemDefinitionRequest[]>;
 
 export interface QuestionnaireResponse {
   question_id: string;

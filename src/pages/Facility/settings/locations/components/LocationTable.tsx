@@ -8,24 +8,14 @@ import {
   PenLine,
   Trash,
 } from "lucide-react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
 import { cn } from "@/lib/utils";
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -41,12 +31,14 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+import ConfirmActionDialog from "@/components/Common/ConfirmActionDialog";
+
 import mutate from "@/Utils/request/mutate";
 import { LocationList, LocationTypeIcons } from "@/types/location/location";
 import locationApi from "@/types/location/locationApi";
 
 // Animated version of TableRow
-const AnimatedTableRow = motion(TableRow);
+const AnimatedTableRow = motion.create(TableRow);
 
 interface Props {
   locations: LocationList[];
@@ -75,6 +67,9 @@ export function LocationTable({
 }: Props) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const [locationToDelete, setLocationToDelete] = useState<LocationList | null>(
+    null,
+  );
 
   const deleteLocation = useMutation({
     mutationFn: (locationId: string) => {
@@ -138,7 +133,6 @@ export function LocationTable({
                   canView && "cursor-pointer",
                 )}
                 onClick={canView ? () => onView?.(location) : undefined}
-                data-cy="view-location-row"
               >
                 <TableCell>
                   <div className="font-medium flex items-center gap-2 py-2">
@@ -172,7 +166,7 @@ export function LocationTable({
                 <TableCell>
                   <Badge
                     variant={
-                      location.status === "active" ? "outline" : "secondary"
+                      location.status === "active" ? "primary" : "secondary"
                     }
                   >
                     {t(location.status)}
@@ -181,7 +175,7 @@ export function LocationTable({
                 <TableCell>
                   <Badge
                     variant={
-                      !location.current_encounter ? "outline" : "destructive"
+                      !location.current_encounter ? "green" : "destructive"
                     }
                   >
                     {location.current_encounter
@@ -204,7 +198,6 @@ export function LocationTable({
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => onMoveUp(location)}
-                                data-cy="move-up-location-button"
                               >
                                 <ArrowUp className="size-4" />
                               </Button>
@@ -227,7 +220,6 @@ export function LocationTable({
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => onMoveDown(location)}
-                                data-cy="move-down-location-button"
                               >
                                 <ArrowDown className="size-4" />
                               </Button>
@@ -244,19 +236,14 @@ export function LocationTable({
 
                         {/* Edit button or spacer */}
                         {onEdit ? (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => onEdit(location)}
-                                data-cy="edit-location-button"
-                              >
-                                <PenLine className="size-4" />
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent>{t("edit")}</TooltipContent>
-                          </Tooltip>
+                          <Button
+                            title="Edit Location"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => onEdit(location)}
+                          >
+                            <PenLine className="size-4" />
+                          </Button>
                         ) : (
                           <div className="size-9"></div>
                         )}
@@ -264,53 +251,19 @@ export function LocationTable({
                         {/* Delete button or spacer */}
                         {!location.has_children &&
                         !location.current_encounter ? (
-                          <AlertDialog>
-                            <Tooltip>
-                              <TooltipTrigger asChild>
-                                <AlertDialogTrigger asChild>
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="text-destructive hover:text-destructive"
-                                    data-cy="delete-location-button"
-                                  >
-                                    <Trash className="size-4" />
-                                  </Button>
-                                </AlertDialogTrigger>
-                              </TooltipTrigger>
-                              <TooltipContent>{t("delete")}</TooltipContent>
-                            </Tooltip>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>
-                                  {t("remove_location", {
-                                    name: location.name,
-                                  })}
-                                </AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  {t("are_you_sure_want_to_delete", {
-                                    name: location.name,
-                                  })}
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>
-                                  {t("cancel")}
-                                </AlertDialogCancel>
-                                <AlertDialogAction
-                                  data-cy="remove-location-button"
-                                  onClick={() =>
-                                    deleteLocation.mutate(location.id)
-                                  }
-                                  className={buttonVariants({
-                                    variant: "destructive",
-                                  })}
-                                >
-                                  {t("remove")}
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="text-destructive hover:text-destructive"
+                                onClick={() => setLocationToDelete(location)}
+                              >
+                                <Trash className="size-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>{t("delete")}</TooltipContent>
+                          </Tooltip>
                         ) : (
                           <div className="size-9"></div>
                         )}
@@ -323,6 +276,19 @@ export function LocationTable({
           })}
         </TableBody>
       </Table>
+      <ConfirmActionDialog
+        open={!!locationToDelete}
+        onOpenChange={(open) => !open && setLocationToDelete(null)}
+        title={t("remove_name", {
+          name: locationToDelete?.name,
+        })}
+        description={t("are_you_sure_want_to_delete", {
+          name: locationToDelete?.name,
+        })}
+        confirmText={t("remove")}
+        onConfirm={() => deleteLocation.mutate(locationToDelete!.id)}
+        variant="destructive"
+      />
     </div>
   );
 }

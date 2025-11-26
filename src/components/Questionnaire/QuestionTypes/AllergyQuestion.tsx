@@ -47,13 +47,14 @@ import {
 } from "@/components/ui/table";
 
 import { CATEGORY_ICONS } from "@/components/Patient/allergy/list";
-import { EntitySelectionSheet } from "@/components/Questionnaire/EntitySelectionSheet";
+import { EntitySelectionDrawer } from "@/components/Questionnaire/EntitySelectionDrawer";
 import ValueSetSelect from "@/components/Questionnaire/ValueSetSelect";
 
 import useBreakpoints from "@/hooks/useBreakpoints";
 
 import query from "@/Utils/request/query";
 import { dateQueryString } from "@/Utils/utils";
+import type { Code } from "@/types/base/code/code";
 import {
   ALLERGY_VERIFICATION_STATUS,
   type AllergyIntolerance,
@@ -61,7 +62,6 @@ import {
   type AllergyVerificationStatus,
 } from "@/types/emr/allergyIntolerance/allergyIntolerance";
 import allergyIntoleranceApi from "@/types/emr/allergyIntolerance/allergyIntoleranceApi";
-import type { Code } from "@/types/questionnaire/code";
 import type {
   QuestionnaireResponse,
   ResponseValue,
@@ -108,6 +108,7 @@ function CategorySelect({
   disabled?: boolean;
   hasId: boolean;
 }) {
+  const { t } = useTranslation();
   return (
     <Select
       value={category}
@@ -116,7 +117,7 @@ function CategorySelect({
     >
       <SelectTrigger className="h-9 w-full lg:h-8 lg:w-[2rem] lg:px-0 lg:[&>svg]:hidden lg:flex lg:items-center lg:justify-center">
         <SelectValue
-          placeholder="Cat"
+          placeholder={t("select_category")}
           className="lg:text-center lg:h-full lg:flex lg:items-center lg:justify-center lg:m-0 lg:p-0"
         >
           {category && (
@@ -179,10 +180,12 @@ function StatusSelect({
   verificationStatus,
   onValueChange,
   disabled,
+  isExistingRecord,
 }: {
   verificationStatus: string;
   onValueChange: (value: string) => void;
   disabled?: boolean;
+  isExistingRecord?: boolean;
 }) {
   const { t } = useTranslation();
   return (
@@ -195,11 +198,14 @@ function StatusSelect({
         <SelectValue placeholder={t("verify")} />
       </SelectTrigger>
       <SelectContent>
-        {Object.entries(ALLERGY_VERIFICATION_STATUS).map(([value, label]) => (
-          <SelectItem key={value} value={value}>
-            {label}
-          </SelectItem>
-        ))}
+        {Object.entries(ALLERGY_VERIFICATION_STATUS).map(
+          ([value, label]) =>
+            (isExistingRecord || value !== "entered_in_error") && (
+              <SelectItem key={value} value={value}>
+                {t(label)}
+              </SelectItem>
+            ),
+        )}
       </SelectContent>
     </Select>
   );
@@ -219,6 +225,7 @@ function OccurrencePicker({
       value={lastOccurrence ? new Date(lastOccurrence) : undefined}
       onChange={onChange}
       disabled={disabled}
+      blockDate={(date) => date > new Date()}
       buttonClassName="h-9 mt-1 lg:h-8 lg:text-sm lg:px-2 lg:justify-start lg:font-normal lg:w-full lg:mt-0"
     />
   );
@@ -329,14 +336,12 @@ const AllergyItem = ({
   const { t } = useTranslation();
   const [showNotes, setShowNotes] = useState(allergy.note !== undefined);
   const desktopLayout = useBreakpoints({ lg: true, default: false });
-
   if (desktopLayout) {
     return (
       <>
         <TableRow
           className={cn({
-            "opacity-40 pointer-events-none":
-              allergy.verification_status === "entered_in_error",
+            "opacity-40 pointer-events-none": disabled,
             "opacity-60": allergy.clinical_status === "inactive",
             "[&_*]:line-through": allergy.clinical_status === "resolved",
           })}
@@ -369,6 +374,7 @@ const AllergyItem = ({
                   verification_status: value as AllergyVerificationStatus,
                 });
               }}
+              isExistingRecord={!!allergy.id}
               disabled={disabled}
             />
           </TableCell>
@@ -509,6 +515,7 @@ const AllergyItem = ({
             });
           }}
           disabled={disabled}
+          isExistingRecord={!!allergy.id}
         />
       </div>
 
@@ -694,7 +701,11 @@ export function AllergyQuestion({
                   <AllergyItem
                     key={index}
                     allergy={allergy}
-                    disabled={disabled}
+                    disabled={
+                      disabled ||
+                      patientAllergies?.results[index]?.verification_status ===
+                        "entered_in_error"
+                    }
                     onUpdate={(updates) => handleUpdateAllergy(index, updates)}
                     onRemove={() => handleRemoveAllergy(index)}
                   />
@@ -721,7 +732,9 @@ export function AllergyQuestion({
                     expandedAllergyIndex === index &&
                       "border border-primary-500 bg-gray-50",
                     expandedAllergyIndex !== index && "border-0 shadow-none",
-                    allergy.verification_status === "entered_in_error" &&
+                    (disabled ||
+                      patientAllergies?.results[index]?.verification_status ===
+                        "entered_in_error") &&
                       "opacity-40",
                     allergy.clinical_status === "inactive" && "opacity-60",
                     allergy.clinical_status === "resolved" && "line-through",
@@ -756,11 +769,7 @@ export function AllergyQuestion({
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                disabled={
-                                  disabled ||
-                                  allergy.verification_status ===
-                                    "entered_in_error"
-                                }
+                                disabled={disabled}
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   handleRemoveAllergy(index);
@@ -813,8 +822,7 @@ export function AllergyQuestion({
                     <CardContent
                       className={cn(
                         "p-3 pt-2 space-y-3 rounded-lg bg-gray-50",
-                        allergy.verification_status === "entered_in_error" &&
-                          "pointer-events-none",
+                        disabled && "pointer-events-none",
                       )}
                     >
                       <AllergyItem
@@ -835,7 +843,7 @@ export function AllergyQuestion({
       )}
 
       {isMobile ? (
-        <EntitySelectionSheet
+        <EntitySelectionDrawer
           open={!!newAllergyInSheet}
           onOpenChange={(open) => {
             if (!open) {
@@ -849,26 +857,24 @@ export function AllergyQuestion({
           onConfirm={handleConfirmAllergy}
           placeholder={addAllergyPlaceholder}
         >
-          <div className="space-y-4 p-3">
-            {newAllergyInSheet && (
-              <AllergyItem
-                allergy={newAllergyInSheet}
-                disabled={disabled}
-                onUpdate={(updates) => {
-                  setNewAllergyInSheet((prev) =>
-                    prev
-                      ? {
-                          ...prev,
-                          ...updates,
-                        }
-                      : null,
-                  );
-                }}
-                onRemove={() => {}}
-              />
-            )}
-          </div>
-        </EntitySelectionSheet>
+          {newAllergyInSheet && (
+            <AllergyItem
+              allergy={newAllergyInSheet}
+              disabled={disabled}
+              onUpdate={(updates) => {
+                setNewAllergyInSheet((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        ...updates,
+                      }
+                    : null,
+                );
+              }}
+              onRemove={() => {}}
+            />
+          )}
+        </EntitySelectionDrawer>
       ) : (
         <ValueSetSelect
           system="system-allergy-code"

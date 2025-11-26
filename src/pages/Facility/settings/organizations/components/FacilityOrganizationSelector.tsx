@@ -1,6 +1,6 @@
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { Building, ChevronDown, ChevronRight, Loader2, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { cn } from "@/lib/utils";
@@ -16,27 +16,28 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
+import { Drawer, DrawerContent, DrawerTrigger } from "@/components/ui/drawer";
 import { Label } from "@/components/ui/label";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import useBreakpoints from "@/hooks/useBreakpoints";
 
 import query from "@/Utils/request/query";
-import { FacilityOrganization } from "@/types/facilityOrganization/facilityOrganization";
+import { FacilityOrganizationRead } from "@/types/facilityOrganization/facilityOrganization";
 import facilityOrganizationApi from "@/types/facilityOrganization/facilityOrganizationApi";
 
 interface FacilityOrganizationSelectorProps {
   value?: string[] | null;
   onChange: (value: string[] | null) => void;
   facilityId: string;
-  currentOrganizations?: FacilityOrganization[];
+  currentOrganizations?: FacilityOrganizationRead[];
   singleSelection?: boolean;
+  optional?: boolean;
 }
 
 export default function FacilityOrganizationSelector(
@@ -51,12 +52,12 @@ export default function FacilityOrganizationSelector(
   } = props;
 
   const [selectedOrganizations, setSelectedOrganizations] = useState<
-    FacilityOrganization[]
+    FacilityOrganizationRead[]
   >([]);
   const [currentSelection, setCurrentSelection] =
-    useState<FacilityOrganization | null>(null);
+    useState<FacilityOrganizationRead | null>(null);
   const [navigationLevels, setNavigationLevels] = useState<
-    FacilityOrganization[]
+    FacilityOrganizationRead[]
   >([]);
   const [facilityOrgSearch, setFacilityOrgSearch] = useState("");
   const [showAllOrgs, setShowAllOrgs] = useState(false);
@@ -93,7 +94,7 @@ export default function FacilityOrganizationSelector(
     })),
   });
 
-  const handleSelect = (org: FacilityOrganization) => {
+  const handleSelect = (org: FacilityOrganizationRead) => {
     const isAlreadySelected = !!currentOrganizations?.find(
       (o) => o.id === org.id,
     );
@@ -112,17 +113,20 @@ export default function FacilityOrganizationSelector(
     setFacilityOrgSearch("");
   };
 
-  const handleConfirmSelection = (org: FacilityOrganization) => {
-    if (!selectedOrganizations.includes(org)) {
-      const newSelection = [...selectedOrganizations, org];
-      setSelectedOrganizations(newSelection);
-      onChange(newSelection.map((org) => org.id));
-      setAlreadySelected(true);
-    }
-    setCurrentSelection(null);
-    setNavigationLevels([]);
-    setOpen(false);
-  };
+  const handleConfirmSelection = useCallback(
+    (org: FacilityOrganizationRead) => {
+      if (!selectedOrganizations.includes(org)) {
+        const newSelection = [...selectedOrganizations, org];
+        setSelectedOrganizations(newSelection);
+        onChange(newSelection.map((org) => org.id));
+        setAlreadySelected(true);
+      }
+      setCurrentSelection(null);
+      setNavigationLevels([]);
+      setOpen(false);
+    },
+    [selectedOrganizations, onChange],
+  );
 
   const handleRemoveOrganization = (index: number) => {
     const newSelection = selectedOrganizations.filter((_, i) => i !== index);
@@ -148,13 +152,52 @@ export default function FacilityOrganizationSelector(
     }
   };
 
-  const getCurrentLevelOrganizations = () => {
+  const getCurrentLevelOrganizations = useCallback(() => {
     if (navigationLevels.length === 0) {
       return rootOrganizations?.results || [];
     }
     const lastQuery = organizationQueries[navigationLevels.length - 1];
     return lastQuery?.data?.results || [];
-  };
+  }, [navigationLevels, rootOrganizations, organizationQueries]);
+
+  // Auto-select when there's only one organization available
+  useEffect(() => {
+    const availableOrganizations = getCurrentLevelOrganizations();
+
+    // Only auto-select if:
+    // 1. We're at the root level (no navigation levels)
+    // 2. There's exactly one organization
+    // 3. No search is active
+    // 4. No organizations are currently selected
+    // 5. Not loading
+    if (
+      navigationLevels.length === 0 &&
+      availableOrganizations.length === 1 &&
+      !facilityOrgSearch &&
+      selectedOrganizations.length === 0 &&
+      !isLoadingRoot
+    ) {
+      const singleOrg = availableOrganizations[0];
+
+      // Check if this organization is already selected in currentOrganizations prop
+      const isAlreadyInCurrent = currentOrganizations?.find(
+        (org) => org.id === singleOrg.id,
+      );
+
+      if (!isAlreadyInCurrent && !props.optional) {
+        handleConfirmSelection(singleOrg);
+      }
+    }
+  }, [
+    getCurrentLevelOrganizations,
+    handleConfirmSelection,
+    navigationLevels,
+    facilityOrgSearch,
+    selectedOrganizations,
+    isLoadingRoot,
+    currentOrganizations,
+    props.optional,
+  ]);
 
   const renderNavigationPath = () => {
     return (
@@ -186,7 +229,7 @@ export default function FacilityOrganizationSelector(
     );
   };
 
-  const renderOrganizationPopover = (className?: string) => {
+  const renderOrganizationCommand = (className?: string) => {
     return (
       <Command className={className}>
         <div className="flex flex-col px-3 py-2 border-b sticky top-0 bg-white z-10">
@@ -211,13 +254,10 @@ export default function FacilityOrganizationSelector(
             placeholder={t("search_organizations")}
             onValueChange={setFacilityOrgSearch}
             value={facilityOrgSearch}
-            className="border-none focus:ring-0"
+            className="border-none focus:ring-0 text-base sm:text-sm"
           />
         </div>
-        <CommandList
-          className="max-h-[calc(100vh-30rem)]"
-          onWheel={(e) => e.stopPropagation()}
-        >
+        <CommandList onWheel={(e) => e.stopPropagation()}>
           <CommandEmpty>
             {isLoadingRoot ||
             organizationQueries[navigationLevels.length - 1]?.isLoading ? (
@@ -281,7 +321,6 @@ export default function FacilityOrganizationSelector(
                 size="sm"
                 className="h-8 gap-2"
                 disabled={alreadySelected}
-                data-cy="confirm-organization"
               >
                 <span>{t("already_selected")}</span>
                 <CareIcon icon="l-multiply" className="h-4 w-4" />
@@ -294,7 +333,6 @@ export default function FacilityOrganizationSelector(
                 className="h-8 gap-2"
                 onClick={() => handleConfirmSelection(currentSelection)}
                 disabled={isDisabled}
-                data-cy="confirm-organization"
               >
                 {isDisabled ? (
                   <>
@@ -329,7 +367,7 @@ export default function FacilityOrganizationSelector(
         <div className="space-y-1">
           <Label>
             {t("select_department")}
-            <span className="text-red-500 ml-0.5">*</span>
+            {!props.optional && <span className="text-red-500 ml-0.5">*</span>}
           </Label>
         </div>
       </div>
@@ -340,12 +378,8 @@ export default function FacilityOrganizationSelector(
         className="w-full sm:w-auto"
       >
         <TabsList className="grid w-full grid-cols-2 sm:w-[300px]">
-          <TabsTrigger value="mine" data-cy="my-organizations-tab">
-            {t("my_organizations")}
-          </TabsTrigger>
-          <TabsTrigger value="all" data-cy="all-organizations-tab">
-            {t("all_organizations")}
-          </TabsTrigger>
+          <TabsTrigger value="mine">{t("my_organizations")}</TabsTrigger>
+          <TabsTrigger value="all">{t("all_organizations")}</TabsTrigger>
         </TabsList>
       </Tabs>
 
@@ -378,14 +412,13 @@ export default function FacilityOrganizationSelector(
               (singleSelection && selectedOrganizations.length < 1)) &&
               (isMobile ? (
                 <>
-                  <Sheet open={open} onOpenChange={setOpen}>
-                    <SheetTrigger asChild>
+                  <Drawer open={open} onOpenChange={setOpen}>
+                    <DrawerTrigger asChild>
                       <Button
                         variant="outline"
                         role="combobox"
                         aria-expanded={open}
                         className="w-full justify-between border-dashed"
-                        data-cy="facility-organization"
                         onClick={() => setOpen(true)}
                         type="button" // Prevents unintended form submission
                       >
@@ -396,11 +429,11 @@ export default function FacilityOrganizationSelector(
                         </span>
                         <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                       </Button>
-                    </SheetTrigger>
-                    <SheetContent className="p-0" side="bottom">
-                      {renderOrganizationPopover("mb-12")}
-                    </SheetContent>
-                  </Sheet>
+                    </DrawerTrigger>
+                    <DrawerContent className="min-h-[50vh] max-h-[85vh]">
+                      {renderOrganizationCommand()}
+                    </DrawerContent>
+                  </Drawer>
                 </>
               ) : (
                 <Popover open={open} onOpenChange={handleOpenChange}>
@@ -410,7 +443,6 @@ export default function FacilityOrganizationSelector(
                       role="combobox"
                       aria-expanded={open}
                       className="w-full justify-between border-dashed"
-                      data-cy="facility-organization"
                     >
                       <span className="truncate text-gray-500">
                         {currentSelection
@@ -425,7 +457,7 @@ export default function FacilityOrganizationSelector(
                     sideOffset={4}
                     className="p-0 w-[var(--radix-popover-trigger-width)] max-h-[80vh] overflow-auto"
                   >
-                    {renderOrganizationPopover()}
+                    {renderOrganizationCommand()}
                   </PopoverContent>
                 </Popover>
               ))}

@@ -21,13 +21,13 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
+  Dialog,
   DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Dialog } from "@/components/ui/dialog";
 import {
   FormControl,
   FormField,
@@ -76,9 +76,11 @@ const AlignmentInput = ({
         <FormItem>
           <FormLabel>{t("alignment")}</FormLabel>
           <Select value={field.value} onValueChange={field.onChange}>
-            <SelectTrigger>
-              <SelectValue placeholder={t("alignment")} />
-            </SelectTrigger>
+            <FormControl>
+              <SelectTrigger ref={field.ref}>
+                <SelectValue placeholder={t("alignment")} />
+              </SelectTrigger>
+            </FormControl>
             <SelectContent>
               {HEADER_ALIGNMENT_OPTIONS.map((option) => (
                 <SelectItem key={option.id} value={option.id}>
@@ -921,9 +923,7 @@ function HeaderRow({
                   variant="secondary"
                   onClick={() => handleRemoveElement(rowIndex, activeElement)}
                 >
-                  <span className="text-sm">
-                    {t(`remove_${column[activeElement].type}`)}
-                  </span>
+                  <span className="text-sm">{t("remove")}</span>
                   <Trash2Icon className="size-3" />
                 </Button>
               )}
@@ -931,7 +931,6 @@ function HeaderRow({
           )}
           <Button
             type="button"
-            size={"sm"}
             variant="destructive"
             onClick={() =>
               setRemoveRowDialog({
@@ -939,10 +938,9 @@ function HeaderRow({
                 rowIndex: rowIndex,
               })
             }
-            className="self-end"
           >
-            <Trash2Icon className="size-3" />
             <span className="text-sm">{t("remove_row")}</span>
+            <Trash2Icon className="size-3" />
           </Button>
         </CardHeader>
         <CardContent>

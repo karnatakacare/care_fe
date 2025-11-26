@@ -28,7 +28,12 @@ export default function FileUploadDialog({
   onOpenChange: (open: boolean) => void;
   fileUpload: FileUploadReturn;
   associatingId: string;
-  type: "patient" | "consent" | "encounter";
+  type:
+    | "patient"
+    | "consent"
+    | "encounter"
+    | "diagnostic_report"
+    | "service_request";
 }) {
   const { t } = useTranslation();
   const [isPdf, setIsPdf] = useState(false);
@@ -110,7 +115,6 @@ export default function FileUploadDialog({
                 </Label>
                 <Input
                   name="file_name_0"
-                  data-cy="upload-file-name"
                   type="text"
                   id="upload-file-name-0"
                   required
@@ -183,7 +187,6 @@ export default function FileUploadDialog({
                         name={`file_name_${index}`}
                         type="text"
                         id={`upload-file-name-${index}`}
-                        data-cy={`upload-file-name-${index}`}
                         required
                         value={fileUpload.fileNames[index] || ""}
                         disabled={fileUpload.uploading}
@@ -235,7 +238,6 @@ export default function FileUploadDialog({
             onClick={() => fileUpload.handleFileUpload(associatingId, isPdf)}
             disabled={fileUpload.uploading}
             id="upload_file_button"
-            data-cy="upload-files-button"
           >
             <CareIcon icon="l-check" className="mr-1" />
             {t("upload")}

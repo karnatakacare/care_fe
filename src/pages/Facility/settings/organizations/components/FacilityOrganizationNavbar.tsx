@@ -8,13 +8,13 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import query from "@/Utils/request/query";
-import { FacilityOrganization } from "@/types/facilityOrganization/facilityOrganization";
+import { FacilityOrganizationRead } from "@/types/facilityOrganization/facilityOrganization";
 import facilityOrganizationApi from "@/types/facilityOrganization/facilityOrganizationApi";
 
 interface OrganizationTreeNodeProps {
-  organization: FacilityOrganization;
+  organization: FacilityOrganizationRead;
   selectedOrganizationId: string | null;
-  onSelect: (organization: FacilityOrganization) => void;
+  onSelect: (organization: FacilityOrganizationRead) => void;
   expandedOrganizations: Set<string>;
   onToggleExpand: (organizationId: string) => void;
   level?: number;
@@ -82,14 +82,13 @@ function OrganizationTreeNode({
               onToggleExpand(organization.id);
             }
           }}
-          data-cy="organization-tree-node-parent"
           className="flex items-center flex-1 text-sm gap-2 cursor-pointer"
         >
           <span className="truncate">{organization.name}</span>
         </div>
       </div>
       {isExpanded && children?.results && children.results.length > 0 && (
-        <div className="pl-2" data-cy="organization-tree-node-children">
+        <div className="pl-2">
           {children.results.map((child) => (
             <OrganizationTreeNode
               key={child.id}
@@ -113,7 +112,7 @@ interface FacilityOrganizationNavbarProps {
   selectedOrganizationId: string | null;
   expandedOrganizations: Set<string>;
   onToggleExpand: (organizationId: string) => void;
-  onOrganizationSelect: (organization: FacilityOrganization) => void;
+  onOrganizationSelect: (organization: FacilityOrganizationRead) => void;
 }
 
 export default function FacilityOrganizationNavbar({
@@ -124,9 +123,7 @@ export default function FacilityOrganizationNavbar({
   onOrganizationSelect,
 }: FacilityOrganizationNavbarProps) {
   const { data: allOrganizations, isLoading: isLoadingOrganizations } =
-    useQuery<{
-      results: FacilityOrganization[];
-    }>({
+    useQuery({
       queryKey: ["facilityOrganization", "list", facilityId],
       queryFn: query(facilityOrganizationApi.list, {
         pathParams: { facilityId },

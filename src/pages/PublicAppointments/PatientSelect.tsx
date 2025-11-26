@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import dayjs from "dayjs";
 import { ArrowLeft } from "lucide-react";
-import { navigate } from "raviger";
+import { navigate, useQueryParams } from "raviger";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
@@ -15,22 +15,18 @@ import Loading from "@/components/Common/Loading";
 
 import { usePatientContext } from "@/hooks/usePatientUser";
 
-import routes from "@/Utils/request/api";
 import mutate from "@/Utils/request/mutate";
 import query from "@/Utils/request/query";
-import { Patient } from "@/types/emr/patient";
+import { PublicPatientRead } from "@/types/emr/patient/patient";
+import publicPatientApi from "@/types/emr/patient/publicPatientApi";
 import PublicAppointmentApi from "@/types/scheduling/PublicAppointmentApi";
-import {
-  Appointment,
-  AppointmentCreateRequest,
-  TokenSlot,
-} from "@/types/scheduling/schedule";
+import { PublicAppointment } from "@/types/scheduling/schedule";
 
 interface PatientCardProps {
-  patient: Patient;
+  patient: PublicPatientRead;
   selectedPatient: string | null;
   setSelectedPatient: (patientId: string) => void;
-  getPatienDobOrAge: (patient: Patient) => string;
+  getPatienDobOrAge: (patient: PublicPatientRead) => string;
 }
 
 function PatientCard({
@@ -83,10 +79,10 @@ function PatientList({
   setSelectedPatient,
   getPatienDobOrAge,
 }: {
-  patients: Patient[];
+  patients: PublicPatientRead[];
   selectedPatient: string | null;
   setSelectedPatient: (patientId: string | null) => void;
-  getPatienDobOrAge: (patient: Patient) => string;
+  getPatienDobOrAge: (patient: PublicPatientRead) => string;
 }) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-0 sm:p-4">
@@ -111,10 +107,7 @@ export default function PatientSelect({
   staffId: string;
 }) {
   const { t } = useTranslation();
-  const selectedSlot = JSON.parse(
-    localStorage.getItem("selectedSlot") ?? "",
-  ) as TokenSlot;
-  const reason = localStorage.getItem("reason");
+  const [{ slotId, reason }] = useQueryParams();
   const [selectedPatient, setSelectedPatient] = useState<string | null>(null);
 
   const patientUserContext = usePatientContext();
@@ -124,11 +117,11 @@ export default function PatientSelect({
 
   if (!staffId) {
     toast.error(t("staff_not_found"));
-    navigate(`/facility/${facilityId}/`);
+    navigate(`/facility/${facilityId}`);
   } else if (!tokenData) {
     toast.error(t("phone_number_not_found"));
     navigate(`/facility/${facilityId}/appointments/${staffId}/otp/send`);
-  } else if (!selectedSlot) {
+  } else if (!slotId) {
     toast.error(t("selected_slot_not_found"));
     navigate(
       `/facility/${facilityId}/appointments/${staffId}/book-appointment`,
@@ -137,7 +130,7 @@ export default function PatientSelect({
 
   const { data: patientData, isLoading } = useQuery({
     queryKey: ["otp-patient"],
-    queryFn: query(routes.otp.getPatient, {
+    queryFn: query(publicPatientApi.list, {
       headers: {
         Authorization: `Bearer ${tokenData.token}`,
         "Content-Type": "application/json",
@@ -147,15 +140,13 @@ export default function PatientSelect({
   });
 
   const { mutate: createAppointment } = useMutation({
-    mutationFn: (body: AppointmentCreateRequest) =>
-      mutate(PublicAppointmentApi.createAppointment, {
-        pathParams: { id: selectedSlot?.id },
-        body,
-        headers: {
-          Authorization: `Bearer ${tokenData.token}`,
-        },
-      })(body),
-    onSuccess: (data: Appointment) => {
+    mutationFn: mutate(PublicAppointmentApi.createAppointment, {
+      pathParams: { id: slotId ?? "" },
+      headers: {
+        Authorization: `Bearer ${tokenData.token}`,
+      },
+    }),
+    onSuccess: (data: PublicAppointment) => {
       toast.success(t("appointment_created_success"));
       queryClient.invalidateQueries({
         queryKey: [
@@ -166,9 +157,6 @@ export default function PatientSelect({
       navigate(`/facility/${facilityId}/appointments/${data.id}/success`, {
         replace: true,
       });
-    },
-    onError: (error) => {
-      toast.error(error?.message || t("failed_to_create_appointment"));
     },
   });
 
@@ -184,7 +172,7 @@ export default function PatientSelect({
     );
   };
 
-  const getPatienDobOrAge = (patient: Patient) => {
+  const getPatienDobOrAge = (patient: PublicPatientRead) => {
     if (patient.date_of_birth) {
       return dayjs(patient.date_of_birth).format("DD MMM YYYY");
     }
@@ -199,8 +187,8 @@ export default function PatientSelect({
     if (!selectedPatientData) return;
 
     createAppointment({
-      patient: selectedPatientData.id ?? "",
-      reason_for_visit: reason ?? "",
+      patient: selectedPatientData.id,
+      note: reason,
     });
   };
 
@@ -227,6 +215,12 @@ export default function PatientSelect({
           onClick={() =>
             navigate(
               `/facility/${facilityId}/appointments/${staffId}/patient-registration`,
+              {
+                query: {
+                  slotId,
+                  reason,
+                },
+              },
             )
           }
         >

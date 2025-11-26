@@ -1,5 +1,5 @@
-import { Code } from "@/types/questionnaire/code";
-import { UserBase } from "@/types/user/user";
+import { Code } from "@/types/base/code/code";
+import { UserReadMinimal } from "@/types/user/user";
 
 export const DIAGNOSIS_CLINICAL_STATUS = [
   "active",
@@ -42,6 +42,10 @@ export const DIAGNOSIS_VERIFICATION_STATUS = [
 export type DiagnosisVerificationStatus =
   (typeof DIAGNOSIS_VERIFICATION_STATUS)[number];
 
+export const DIAGNOSIS_SEVERITY = ["severe", "moderate", "mild"] as const;
+
+export type DiagnosisSeverity = (typeof DIAGNOSIS_SEVERITY)[number];
+
 export type Onset = {
   onset_datetime?: string;
   onset_age?: string;
@@ -54,14 +58,15 @@ export interface Diagnosis {
   code: Code;
   clinical_status: DiagnosisClinicalStatus;
   verification_status: DiagnosisVerificationStatus;
+  severity: DiagnosisSeverity | null;
   onset?: Onset;
   recorded_date?: string;
   note?: string;
   category: DiagnosisCategory;
-  created_by: UserBase;
-  updated_by: UserBase;
+  created_by: UserReadMinimal;
+  updated_by: UserReadMinimal;
   encounter: string;
-  created_date?: string;
+  created_date: string;
   updated_date?: string;
 }
 
@@ -72,31 +77,38 @@ export interface DiagnosisRequest {
   clinical_status: DiagnosisClinicalStatus;
   verification_status: DiagnosisVerificationStatus;
   code: Code;
+  severity: DiagnosisSeverity | null;
   onset?: Onset;
   recorded_date?: string;
   note?: string;
   category: DiagnosisCategory;
   encounter: string;
   dirty: boolean;
-  created_by?: UserBase;
+  created_by?: UserReadMinimal;
   created_date?: string;
   updated_date?: string;
 }
 
-export const DIAGNOSIS_CLINICAL_STATUS_STYLES = {
-  active: "bg-green-100 text-green-800 border-green-200",
-  recurrence: "bg-yellow-100 text-yellow-800 border-yellow-200",
-  relapse: "bg-red-100 text-red-800 border-red-200",
-  inactive: "bg-gray-100 text-gray-800 border-gray-200",
-  remission: "bg-blue-100 text-blue-800 border-blue-200",
-  resolved: "bg-emerald-100 text-emerald-800 border-emerald-200",
+export const DIAGNOSIS_CLINICAL_STATUS_COLORS = {
+  active: "primary",
+  recurrence: "yellow",
+  relapse: "destructive",
+  inactive: "secondary",
+  remission: "blue",
+  resolved: "green",
 } as const;
 
-export const DIAGNOSIS_VERIFICATION_STATUS_STYLES = {
-  unconfirmed: "bg-yellow-100 text-yellow-800 border-yellow-200",
-  provisional: "bg-orange-100 text-orange-800 border-orange-200",
-  differential: "bg-purple-100 text-purple-800 border-purple-200",
-  confirmed: "bg-green-100 text-green-800 border-green-200",
-  refuted: "bg-red-100 text-red-800 border-red-200",
-  entered_in_error: "bg-red-100 text-red-800 border-red-200",
+export const DIAGNOSIS_VERIFICATION_STATUS_COLORS = {
+  unconfirmed: "yellow",
+  provisional: "orange",
+  differential: "purple",
+  confirmed: "green",
+  refuted: "destructive",
+  entered_in_error: "destructive",
+} as const;
+
+export const DIAGNOSIS_SEVERITY_COLORS = {
+  severe: "destructive",
+  moderate: "yellow",
+  mild: "blue",
 } as const;

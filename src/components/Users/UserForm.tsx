@@ -39,8 +39,7 @@ import {
   validateRule,
 } from "@/components/Users/UserFormValidations";
 
-import { GENDER_TYPES, NAME_PREFIXES } from "@/common/constants";
-import { GENDERS } from "@/common/constants";
+import { GENDERS, GENDER_TYPES, NAME_PREFIXES } from "@/common/constants";
 
 import mutate from "@/Utils/request/mutate";
 import query from "@/Utils/request/query";
@@ -48,11 +47,11 @@ import validators from "@/Utils/validators";
 import GovtOrganizationSelector from "@/pages/Organization/components/GovtOrganizationSelector";
 import { Organization } from "@/types/organization/organization";
 import organizationApi from "@/types/organization/organizationApi";
-import { CreateUserModel, UpdateUserModel, UserBase } from "@/types/user/user";
+import { UserCreate, UserReadMinimal, UserUpdate } from "@/types/user/user";
 import userApi from "@/types/user/userApi";
 
 interface Props {
-  onSubmitSuccess?: (user: UserBase) => void;
+  onSubmitSuccess?: (user: UserReadMinimal) => void;
   existingUsername?: string;
   organizationId?: string;
 }
@@ -70,11 +69,14 @@ export default function UserForm({
 
   const userFormSchema = z
     .object({
-      user_type: isEditMode
-        ? z
-            .enum(["doctor", "nurse", "staff", "volunteer", "administrator"])
-            .optional()
-        : z.enum(["doctor", "nurse", "staff", "volunteer", "administrator"]),
+      user_type: z.enum([
+        "doctor",
+        "nurse",
+        "staff",
+        "volunteer",
+        "administrator",
+      ]),
+
       username: isEditMode
         ? z.string().optional()
         : z
@@ -109,6 +111,22 @@ export default function UserForm({
     .refine(
       (data) => {
         if (!isEditMode && data.password_setup_method === "immediate") {
+          return !!data.password;
+        }
+        return true;
+      },
+      {
+        message: t("password_required"),
+        path: ["password"],
+      },
+    )
+    .refine(
+      (data) => {
+        if (
+          !isEditMode &&
+          data.password_setup_method === "immediate" &&
+          data.password
+        ) {
           return data.password && data.password === data.c_password;
         }
         return true;
@@ -172,7 +190,6 @@ export default function UserForm({
         user_type: userData.user_type,
         first_name: userData.first_name,
         last_name: userData.last_name,
-        email: userData.email,
         phone_number: userData.phone_number || "",
         gender: userData.gender || undefined,
         prefix: userData.prefix || "",
@@ -236,7 +253,7 @@ export default function UserForm({
   const { mutate: createUser, isPending: createPending } = useMutation({
     mutationKey: ["create_user"],
     mutationFn: mutate(userApi.create),
-    onSuccess: (resp: UserBase) => {
+    onSuccess: (resp: UserReadMinimal) => {
       toast.success(t("user_added_successfully"));
       queryClient.invalidateQueries({
         queryKey: ["facilityUsers"],
@@ -259,7 +276,7 @@ export default function UserForm({
     mutationFn: mutate(userApi.update, {
       pathParams: { username: existingUsername! },
     }),
-    onSuccess: (resp: UserBase) => {
+    onSuccess: (resp: UserReadMinimal) => {
       toast.success(t("user_updated_successfully"));
       [
         ["facilityUsers"],
@@ -274,23 +291,36 @@ export default function UserForm({
 
   const onSubmit = async (data: UserFormValues) => {
     if (isEditMode) {
-      updateUser({
-        ...data,
-      } as UpdateUserModel);
+      const updatePayload: UserUpdate = {
+        user_type: data.user_type,
+        username: data.username || existingUsername!,
+        first_name: data.first_name,
+        last_name: data.last_name,
+        phone_number: data.phone_number,
+        prefix: data.prefix || "",
+        suffix: data.suffix || "",
+        gender: data.gender,
+        geo_organization: data.geo_organization || undefined,
+      };
+      updateUser(updatePayload);
     } else {
-      createUser({
-        ...data,
+      const createPayload: UserCreate = {
+        user_type: data.user_type!,
+        username: data.username!,
         password:
           data.password_setup_method === "immediate"
-            ? data.password
+            ? data.password!
             : undefined,
-        c_password:
-          data.password_setup_method === "immediate"
-            ? data.c_password
-            : undefined,
-        profile_picture_url: "",
-        geo_organization: data.geo_organization || null,
-      } as CreateUserModel);
+        first_name: data.first_name,
+        last_name: data.last_name,
+        email: data.email!,
+        phone_number: data.phone_number,
+        prefix: data.prefix || "",
+        suffix: data.suffix || "",
+        gender: data.gender,
+        geo_organization: data.geo_organization || undefined,
+      };
+      createUser(createPayload);
     }
   };
 
@@ -331,7 +361,7 @@ export default function UserForm({
                   defaultValue={field.value}
                 >
                   <FormControl>
-                    <SelectTrigger data-cy="user-type-select">
+                    <SelectTrigger ref={field.ref}>
                       <SelectValue placeholder={t("select_user_type")} />
                     </SelectTrigger>
                   </FormControl>
@@ -359,6 +389,7 @@ export default function UserForm({
               <FormItem>
                 <FormLabel>{t("prefix")}</FormLabel>
                 <Autocomplete
+                  {...field}
                   options={NAME_PREFIXES.map((prefix) => ({
                     label: prefix,
                     value: prefix,
@@ -382,11 +413,7 @@ export default function UserForm({
               <FormItem className="flex-1">
                 <FormLabel aria-required>{t("first_name")}</FormLabel>
                 <FormControl>
-                  <Input
-                    data-cy="first-name-input"
-                    placeholder={t("first_name")}
-                    {...field}
-                  />
+                  <Input placeholder={t("first_name")} {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -399,11 +426,7 @@ export default function UserForm({
               <FormItem className="flex-1">
                 <FormLabel aria-required>{t("last_name")}</FormLabel>
                 <FormControl>
-                  <Input
-                    data-cy="last-name-input"
-                    placeholder={t("last_name")}
-                    {...field}
-                  />
+                  <Input placeholder={t("last_name")} {...field} />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -415,11 +438,7 @@ export default function UserForm({
             render={({ field }) => (
               <FormItem>
                 <FormLabel>{t("suffix")}</FormLabel>
-                <Input
-                  data-cy="suffix-input"
-                  placeholder={t("suffix")}
-                  {...field}
-                />
+                <Input placeholder={t("suffix")} {...field} />
 
                 <FormMessage />
               </FormItem>
@@ -438,7 +457,6 @@ export default function UserForm({
                   <FormControl>
                     <div className="relative">
                       <Input
-                        data-cy="username-input"
                         placeholder={t("username")}
                         {...field}
                         onFocus={() => setIsUsernameFieldFocused(true)}
@@ -506,12 +524,7 @@ export default function UserForm({
                   <FormItem>
                     <FormLabel aria-required>{t("email")}</FormLabel>
                     <FormControl>
-                      <Input
-                        data-cy="email-input"
-                        type="email"
-                        placeholder={t("email")}
-                        {...field}
-                      />
+                      <Input type="email" placeholder={t("email")} {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -604,7 +617,6 @@ export default function UserForm({
                       <FormControl>
                         <div className="relative">
                           <PasswordInput
-                            data-cy="password-input"
                             placeholder={t("password")}
                             {...field}
                             onFocus={() => setIsPasswordFieldFocused(true)}
@@ -661,7 +673,6 @@ export default function UserForm({
                       </FormLabel>
                       <FormControl>
                         <PasswordInput
-                          data-cy="confirm-password-input"
                           placeholder={t("confirm_password")}
                           {...field}
                         />
@@ -684,7 +695,6 @@ export default function UserForm({
                 <FormLabel aria-required>{t("phone_number")}</FormLabel>
                 <FormControl>
                   <PhoneInput
-                    data-cy="phone-number-input"
                     placeholder={t("enter_phone_number")}
                     {...field}
                   />
@@ -706,17 +716,13 @@ export default function UserForm({
                   defaultValue={field.value}
                 >
                   <FormControl>
-                    <SelectTrigger data-cy="gender-select">
+                    <SelectTrigger ref={field.ref}>
                       <SelectValue placeholder={t("select_gender")} />
                     </SelectTrigger>
                   </FormControl>
                   <SelectContent>
                     {GENDER_TYPES.map((gender) => (
-                      <SelectItem
-                        key={gender.id}
-                        value={gender.id}
-                        data-cy={`gender-${gender.id}`}
-                      >
+                      <SelectItem key={gender.id} value={gender.id}>
                         {gender.text}
                       </SelectItem>
                     ))}
@@ -739,7 +745,6 @@ export default function UserForm({
                 <FormLabel>{t("qualification")}</FormLabel>
                 <FormControl>
                   <Input
-                    data-cy="qualification-input"
                     placeholder={t("qualification")}
                     {...field}
                   />
@@ -761,7 +766,6 @@ export default function UserForm({
                     <FormLabel>{t("years_of_experience")}</FormLabel>
                     <FormControl>
                       <Input
-                        data-cy="experience-input"
                         type="number"
                         placeholder={t("years_of_experience")}
                         {...field}
@@ -780,7 +784,6 @@ export default function UserForm({
                     <FormLabel>{t("medical_council_registration")}</FormLabel>
                     <FormControl>
                       <Input
-                        data-cy="medical-registration-input"
                         placeholder={t("medical_council_registration")}
                         {...field}
                       />
@@ -818,7 +821,6 @@ export default function UserForm({
         <Button
           type="submit"
           className="w-full"
-          data-cy="submit-user-form"
           variant="primary"
           disabled={
             isLoadingUser ||

@@ -45,13 +45,14 @@ import {
 } from "@/components/ui/table";
 
 import { HistoricalRecordSelector } from "@/components/HistoricalRecordSelector";
-import { EntitySelectionSheet } from "@/components/Questionnaire/EntitySelectionSheet";
+import { EntitySelectionDrawer } from "@/components/Questionnaire/EntitySelectionDrawer";
 import ValueSetSelect from "@/components/Questionnaire/ValueSetSelect";
 
 import useBreakpoints from "@/hooks/useBreakpoints";
 
 import query from "@/Utils/request/query";
 import { dateQueryString, formatName } from "@/Utils/utils";
+import { Code } from "@/types/base/code/code";
 import {
   Onset,
   SYMPTOM_CLINICAL_STATUS,
@@ -61,7 +62,6 @@ import {
   SymptomRequest,
 } from "@/types/emr/symptom/symptom";
 import symptomApi from "@/types/emr/symptom/symptomApi";
-import { Code } from "@/types/questionnaire/code";
 import {
   QuestionnaireResponse,
   ResponseValue,
@@ -85,32 +85,8 @@ const SYMPTOM_INITIAL_VALUE: Omit<SymptomRequest, "encounter"> = {
   verification_status: "confirmed",
   severity: "moderate",
   category: "problem_list_item",
-  onset: { onset_datetime: new Date().toISOString().split("T")[0] },
+  onset: { onset_datetime: dateQueryString(new Date()) },
 };
-
-function DatePickerField({
-  onsetDatetime,
-  onChange,
-  disabled,
-  isSymptomInSheet,
-  hasId,
-}: {
-  onsetDatetime?: string;
-  onChange: (date: Date | undefined) => void;
-  disabled?: boolean;
-  isSymptomInSheet: boolean;
-  hasId: boolean;
-}) {
-  return (
-    <CombinedDatePicker
-      value={onsetDatetime ? new Date(onsetDatetime) : undefined}
-      onChange={onChange}
-      disabled={disabled || (!isSymptomInSheet && hasId)}
-      dateFormat="P"
-      buttonClassName="h-8 md:h-9 w-full justify-start font-normal"
-    />
-  );
-}
 
 function StatusSelect({
   status,
@@ -167,10 +143,12 @@ function SeveritySelect({
 function VerificationStatusSelect({
   status,
   onValueChange,
+  isExistingRecord,
   disabled,
 }: {
   status: string;
   onValueChange: (value: string) => void;
+  isExistingRecord?: boolean;
   disabled?: boolean;
 }) {
   const { t } = useTranslation();
@@ -180,11 +158,14 @@ function VerificationStatusSelect({
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        {SYMPTOM_VERIFICATION_STATUS.map((status) => (
-          <SelectItem key={status} value={status}>
-            {t(status)}
-          </SelectItem>
-        ))}
+        {SYMPTOM_VERIFICATION_STATUS.map(
+          (value) =>
+            (isExistingRecord || value !== "entered_in_error") && (
+              <SelectItem key={value} value={value}>
+                {t(value)}
+              </SelectItem>
+            ),
+        )}
       </SelectContent>
     </Select>
   );
@@ -360,12 +341,16 @@ const SymptomRow = React.memo(function SymptomRow({
           <div className="text-sm font-medium text-gray-700 mb-1">
             {t("onset_date")}
           </div>
-          <DatePickerField
-            onsetDatetime={symptom.onset?.onset_datetime}
+          <CombinedDatePicker
+            value={
+              symptom.onset?.onset_datetime
+                ? new Date(symptom.onset.onset_datetime)
+                : undefined
+            }
             onChange={handleDateChange}
-            disabled={disabled}
-            isSymptomInSheet={isSymptomInSheet}
-            hasId={!!symptom.id}
+            disabled={disabled || (!isSymptomInSheet && !!symptom.id)}
+            blockDate={(date) => date > new Date()}
+            buttonClassName="h-8 md:h-9 w-full justify-start font-normal"
           />
         </div>
         <div>
@@ -396,6 +381,7 @@ const SymptomRow = React.memo(function SymptomRow({
             status={symptom.verification_status}
             onValueChange={handleVerificationStatusChange}
             disabled={disabled}
+            isExistingRecord={!!symptom.id}
           />
         </div>
         <div>
@@ -415,12 +401,7 @@ const SymptomRow = React.memo(function SymptomRow({
   // For mobile view - Card Layout
   if (isMobile) {
     return (
-      <div
-        className={cn("group hover:bg-gray-50", {
-          "opacity-40 pointer-events-none":
-            symptom.verification_status === "entered_in_error",
-        })}
-      >
+      <div className="group hover:bg-gray-50">
         <Card
           className={cn(
             "mb-2 rounded-lg border-0 shadow-none",
@@ -506,12 +487,16 @@ const SymptomRow = React.memo(function SymptomRow({
                   <div className="block text-sm font-medium  mb-1">
                     {t("onset_date")}
                   </div>
-                  <DatePickerField
-                    onsetDatetime={symptom.onset?.onset_datetime}
+                  <CombinedDatePicker
+                    value={
+                      symptom.onset?.onset_datetime
+                        ? new Date(symptom.onset.onset_datetime)
+                        : undefined
+                    }
                     onChange={handleDateChange}
-                    disabled={disabled}
-                    isSymptomInSheet={isSymptomInSheet}
-                    hasId={!!symptom.id}
+                    disabled={disabled || (!isSymptomInSheet && !!symptom.id)}
+                    blockDate={(date) => date > new Date()}
+                    buttonClassName="h-8 md:h-9 w-full justify-start font-normal"
                   />
                 </div>
                 <div>
@@ -542,6 +527,7 @@ const SymptomRow = React.memo(function SymptomRow({
                     status={symptom.verification_status}
                     onValueChange={handleVerificationStatusChange}
                     disabled={disabled}
+                    isExistingRecord={!!symptom.id}
                   />
                 </div>
                 <div>
@@ -565,24 +551,23 @@ const SymptomRow = React.memo(function SymptomRow({
   // For desktop view - Table Row
   return (
     <>
-      <TableRow
-        className={cn({
-          "opacity-40 pointer-events-none":
-            symptom.verification_status === "entered_in_error",
-        })}
-      >
+      <TableRow className={cn(disabled && "opacity-40 pointer-events-none")}>
         <TableCell className="font-medium">
           <div className="truncate max-w-[300px]" title={symptom.code.display}>
             {symptom.code.display}
           </div>
         </TableCell>
         <TableCell>
-          <DatePickerField
-            onsetDatetime={symptom.onset?.onset_datetime}
+          <CombinedDatePicker
+            value={
+              symptom.onset?.onset_datetime
+                ? new Date(symptom.onset.onset_datetime)
+                : undefined
+            }
             onChange={handleDateChange}
-            disabled={disabled}
-            isSymptomInSheet={isSymptomInSheet}
-            hasId={!!symptom.id}
+            disabled={disabled || (!isSymptomInSheet && !!symptom.id)}
+            blockDate={(date) => date > new Date()}
+            buttonClassName="h-8 md:h-9 w-full justify-start font-normal"
           />
         </TableCell>
         <TableCell>
@@ -604,6 +589,7 @@ const SymptomRow = React.memo(function SymptomRow({
             status={symptom.verification_status}
             onValueChange={handleVerificationStatusChange}
             disabled={disabled}
+            isExistingRecord={!!symptom.id}
           />
         </TableCell>
         <TableCell className="text-center">
@@ -805,6 +791,7 @@ export function SymptomQuestion({
   return (
     <div className="space-y-2">
       <HistoricalRecordSelector<SymptomRequest>
+        title={t("symptom_history")}
         structuredTypes={[
           {
             type: t("symptoms"),
@@ -851,7 +838,6 @@ export function SymptomQuestion({
                   offset,
                   limit,
                   exclude_verification_status: "entered_in_error",
-                  ordering: "-created_date",
                 },
               })({ signal: new AbortController().signal });
               return response;
@@ -861,6 +847,7 @@ export function SymptomQuestion({
         ]}
         buttonLabel={t("symptom_history")}
         onAddSelected={handleAddHistoricalSymptoms}
+        disableAPI={isPreview}
       />
       {symptoms.length > 0 && (
         <>
@@ -871,7 +858,9 @@ export function SymptomQuestion({
                 <TableHeader>
                   <TableRow className="bg-gray-50">
                     <TableHead className="w-[40%]">{t("symptom")}</TableHead>
-                    <TableHead className="text-center">{t("date")}</TableHead>
+                    <TableHead className="text-center">
+                      {t("onset_date")}
+                    </TableHead>
                     <TableHead className="text-center">{t("status")}</TableHead>
                     <TableHead className="text-center">
                       {t("severity")}
@@ -887,7 +876,11 @@ export function SymptomQuestion({
                     <SymptomRow
                       symptom={symptom}
                       index={index}
-                      disabled={disabled}
+                      disabled={
+                        disabled ||
+                        patientSymptoms?.results[index]?.verification_status ===
+                          "entered_in_error"
+                      }
                       onUpdate={handleUpdateSymptom}
                       onRemove={handleRemoveSymptom}
                       key={
@@ -907,7 +900,11 @@ export function SymptomQuestion({
                 <SymptomRow
                   symptom={symptom}
                   index={index}
-                  disabled={disabled}
+                  disabled={
+                    disabled ||
+                    patientSymptoms?.results[index]?.verification_status ===
+                      "entered_in_error"
+                  }
                   onUpdate={handleUpdateSymptom}
                   onRemove={handleRemoveSymptom}
                   key={symptom.id || `symptom-${symptom.code.code}-${index}`}
@@ -919,7 +916,7 @@ export function SymptomQuestion({
       )}
 
       {isMobile ? (
-        <EntitySelectionSheet
+        <EntitySelectionDrawer
           open={showSymptomSelection}
           onOpenChange={setShowSymptomSelection}
           system="system-condition-code"
@@ -929,18 +926,16 @@ export function SymptomQuestion({
           onConfirm={handleConfirmSymptom}
           placeholder={addSymptomPlaceholder}
         >
-          <div className="space-y-4 p-3">
-            <SymptomRow
-              symptom={newSymptom as SymptomRequest}
-              index={-1}
-              disabled={disabled}
-              onUpdate={(_, updates) => {
-                setNewSymptom((prev) => ({ ...prev, ...updates }));
-              }}
-              onRemove={() => {}}
-            />
-          </div>
-        </EntitySelectionSheet>
+          <SymptomRow
+            symptom={newSymptom as SymptomRequest}
+            index={-1}
+            disabled={disabled}
+            onUpdate={(_, updates) => {
+              setNewSymptom((prev) => ({ ...prev, ...updates }));
+            }}
+            onRemove={() => {}}
+          />
+        </EntitySelectionDrawer>
       ) : (
         <ValueSetSelect
           system="system-condition-code"

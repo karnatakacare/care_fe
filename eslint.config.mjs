@@ -2,13 +2,50 @@ import eslint from "@eslint/js";
 import tseslint from "@typescript-eslint/eslint-plugin";
 import tsParser from "@typescript-eslint/parser";
 import i18nextPlugin from "eslint-plugin-i18next";
+import i18nextNoUndefinedTranslationKeysPlugin from "eslint-plugin-i18next-no-undefined-translation-keys";
 import noRelativeImportPaths from "eslint-plugin-no-relative-import-paths";
 import eslintPluginPrettierRecommended from "eslint-plugin-prettier/recommended";
 import reactPlugin from "eslint-plugin-react";
 import reactHooksPlugin from "eslint-plugin-react-hooks";
 import globals from "globals";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-export default [
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const namespaceMappingPath = path.join(__dirname, "namespaceMapping.json");
+const namespaceMapping = {
+  default: path.join(__dirname, "public/locale/en.json"),
+};
+fs.writeFileSync(
+  namespaceMappingPath,
+  JSON.stringify(namespaceMapping, null, 2),
+);
+
+const isPreCommit = process.env.PRE_COMMIT === "true";
+const isProduction = process.env.NODE_ENV === "production";
+const DEFAULT = true;
+
+const dynamicRules = (ruleset, logKey) => {
+  const appliedRule = Object.entries(ruleset).find(([rule, condition]) => {
+    return condition === true;
+  });
+  if (appliedRule) {
+    const [rule] = appliedRule;
+    if (logKey) {
+      console.log(`${logKey} rule set to ${rule}`);
+    }
+    return rule;
+  }
+  if (logKey) {
+    console.log(`${logKey} rule off`);
+  }
+  return "off";
+};
+
+const config = [
   // Base configuration
   {
     ignores: [
@@ -78,6 +115,10 @@ export default [
         { allowShortCircuit: true, allowTernary: true },
       ],
       "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/no-deprecated": dynamicRules({
+        error: isPreCommit,
+        warn: DEFAULT,
+      }),
       "no-undef": "off",
     },
   },
@@ -119,11 +160,16 @@ export default [
     files: ["**/*.{js,jsx,ts,tsx}"],
     plugins: {
       i18next: i18nextPlugin,
+      "i18next-no-undefined-translation-keys":
+        i18nextNoUndefinedTranslationKeysPlugin,
     },
     rules: {
       ...i18nextPlugin.configs.recommended.rules,
       "i18next/no-literal-string": [
-        "warn",
+        dynamicRules({
+          error: isPreCommit || isProduction,
+          warn: DEFAULT,
+        }),
         {
           mode: "jsx-only",
           "jsx-attributes": {
@@ -135,16 +181,26 @@ export default [
           },
         },
       ],
+      "i18next-no-undefined-translation-keys/no-undefined-translation-keys": [
+        dynamicRules({
+          error: isPreCommit || isProduction,
+          warn: DEFAULT,
+        }),
+        {
+          namespaceTranslationMappingFile: namespaceMappingPath,
+          defaultNamespace: "default",
+        },
+      ],
     },
   },
 
-  // Cypress-specific rules
+  // Playwright-specific rules
   {
-    files: ["cypress/**/*.ts"],
+    files: ["tests/**/*.ts", "playwright.config.ts"],
     languageOptions: {
       parser: tsParser,
       parserOptions: {
-        project: "./cypress/tsconfig.json",
+        project: "./tests/tsconfig.json",
       },
     },
   },
@@ -152,3 +208,5 @@ export default [
   // Add prettier recommended config last
   eslintPluginPrettierRecommended,
 ];
+
+export default config;

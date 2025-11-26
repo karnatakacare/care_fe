@@ -1,20 +1,19 @@
+import { NavigationLink } from "@/components/ui/sidebar/nav-main";
+import { PluginEncounterTabProps } from "@/pages/Encounters/EncounterShow";
+import { InvoiceRead } from "@/types/billing/invoice/invoice";
+import { DeviceDetail } from "@/types/device/device";
+import { EncounterRead } from "@/types/emr/encounter/encounter";
+import { PatientRead } from "@/types/emr/patient/patient";
+import { FacilityRead } from "@/types/facility/facility";
+import { UserReadMinimal } from "@/types/user/user";
 import { LazyExoticComponent } from "react";
 import { UseFormReturn } from "react-hook-form";
-
-import { EncounterTabProps } from "@/pages/Encounters/EncounterShow";
-import { DeviceDetail } from "@/types/device/device";
-import { Encounter } from "@/types/emr/encounter";
-import { Patient } from "@/types/emr/patient";
-import { UserBase } from "@/types/user/user";
-
-import { AppRoutes } from "./Routers/AppRouter";
 import { QuestionnaireFormState } from "./components/Questionnaire/QuestionnaireForm";
-import { NavigationLink } from "./components/ui/sidebar/facility-nav";
 import { pluginMap } from "./pluginMap";
-import { FacilityData } from "./types/facility/facility";
+import { AppRoutes } from "./Routers/AppRouter";
 
 export type DoctorConnectButtonComponentType = React.FC<{
-  user: UserBase;
+  user: UserReadMinimal;
 }>;
 
 export type ScribeComponentType = React.FC<{
@@ -23,27 +22,27 @@ export type ScribeComponentType = React.FC<{
 }>;
 
 export type PatientHomeActionsComponentType = React.FC<{
-  patient: Patient;
+  patient: PatientRead;
   facilityId?: string;
   className?: string;
 }>;
 
-export type PatientInfoCardActionsComponentType = React.FC<{
-  encounter: Encounter;
+export type EncounterActionsComponentType = React.FC<{
+  encounter: EncounterRead;
   className?: string;
 }>;
 
 export type PatientInfoCardQuickActionsComponentType = React.FC<{
-  encounter: Encounter;
+  encounter: EncounterRead;
   className?: string;
 }>;
 
 export type PatientInfoCardMarkAsCompleteComponentType = React.FC<{
-  encounter: Encounter;
+  encounter: EncounterRead;
 }>;
 
 export type FacilityHomeActionsComponentType = React.FC<{
-  facility: FacilityData;
+  facility: FacilityRead;
   className?: string;
 }>;
 
@@ -56,7 +55,17 @@ export type PatientRegistrationFormComponentType = React.FC<{
 export type PatientDetailsTabDemographyGeneralInfoComponentType = React.FC<{
   facilityId: string;
   patientId: string;
-  patientData: Patient;
+  patientData: PatientRead;
+}>;
+
+export type InvoiceRecordPaymentOptionsComponentType = React.FC<{
+  facilityId: string;
+  invoice: InvoiceRead;
+}>;
+
+export type PatientSearchActionsComponentType = React.FC<{
+  facilityId: string;
+  className?: string;
 }>;
 
 // Define supported plugin components
@@ -64,12 +73,14 @@ export type SupportedPluginComponents = {
   DoctorConnectButtons: DoctorConnectButtonComponentType;
   Scribe: ScribeComponentType;
   PatientHomeActions: PatientHomeActionsComponentType;
-  PatientInfoCardActions: PatientInfoCardActionsComponentType;
   PatientInfoCardQuickActions: PatientInfoCardQuickActionsComponentType;
+  EncounterActions: EncounterActionsComponentType;
   PatientInfoCardMarkAsComplete: PatientInfoCardMarkAsCompleteComponentType;
   FacilityHomeActions: FacilityHomeActionsComponentType;
   PatientRegistrationForm: PatientRegistrationFormComponentType;
   PatientDetailsTabDemographyGeneralInfo: PatientDetailsTabDemographyGeneralInfoComponentType;
+  InvoiceRecordPaymentOptions: InvoiceRecordPaymentOptionsComponentType;
+  PatientSearchActions: PatientSearchActionsComponentType;
 };
 
 // Create a type for lazy-loaded components
@@ -92,7 +103,7 @@ export type PluginDeviceManifest = {
     onChange: (metadata: Record<string, unknown>) => void;
   }>;
   showPageCard?: React.FC<{ device: DeviceDetail; facilityId: string }>;
-  encounterOverview?: React.FC<{ encounter: Encounter }>;
+  encounterOverview?: React.FC<{ encounter: EncounterRead }>;
 };
 
 type SupportedPluginExtensions =
@@ -105,8 +116,12 @@ export type PluginManifest = {
   extends?: readonly SupportedPluginExtensions[];
   navItems?: NavigationLink[];
   userNavItems?: NavigationLink[];
+  adminNavItems?: NavigationLink[];
   components?: PluginComponentMap;
-  encounterTabs?: Record<string, LazyComponent<React.FC<EncounterTabProps>>>;
+  encounterTabs?: Record<
+    string,
+    LazyComponent<React.FC<PluginEncounterTabProps>>
+  >;
   devices?: readonly PluginDeviceManifest[];
 };
 

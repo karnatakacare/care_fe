@@ -1,11 +1,12 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { navigate, useNavigationPrompt } from "raviger";
+import { navigate, useNavigationPrompt, useQueryParams } from "raviger";
 import { useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { z } from "zod";
 
+import RadioInput from "@/components/ui/RadioInput";
 import { Button } from "@/components/ui/button";
 import DateField from "@/components/ui/date-field";
 import {
@@ -17,28 +18,22 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 
 import { usePatientContext } from "@/hooks/usePatientUser";
 
 import { GENDERS, GENDER_TYPES } from "@/common/constants";
-import { validateName, validatePincode } from "@/common/validation";
+import { validateName } from "@/common/validation";
 
 import { usePubSub } from "@/Utils/pubsubContext";
-import routes from "@/Utils/request/api";
 import mutate from "@/Utils/request/mutate";
 import { dateQueryString } from "@/Utils/utils";
+import validators from "@/Utils/validators";
 import GovtOrganizationSelector from "@/pages/Organization/components/GovtOrganizationSelector";
-import { AppointmentPatientRegister } from "@/pages/Patient/Utils";
-import { Patient } from "@/types/emr/patient";
+import { PublicPatientRead } from "@/types/emr/patient/patient";
+import publicPatientApi from "@/types/emr/patient/publicPatientApi";
 import PublicAppointmentApi from "@/types/scheduling/PublicAppointmentApi";
-import {
-  Appointment,
-  AppointmentCreateRequest,
-  TokenSlot,
-} from "@/types/scheduling/schedule";
+import { PublicAppointment } from "@/types/scheduling/schedule";
 
 type PatientRegistrationProps = {
   facilityId: string;
@@ -47,12 +42,8 @@ type PatientRegistrationProps = {
 
 export function PatientRegistration(props: PatientRegistrationProps) {
   const { staffId } = props;
-  const selectedSlot = JSON.parse(
-    localStorage.getItem("selectedSlot") ?? "",
-  ) as TokenSlot;
-  const reason = localStorage.getItem("reason");
-
   const { t } = useTranslation();
+  const [{ slotId, reason }] = useQueryParams();
 
   const queryClient = useQueryClient();
 
@@ -71,17 +62,8 @@ export function PatientRegistration(props: PatientRegistrationProps) {
       address: z.string().min(1, t("field_required")),
       age: z.string().optional(),
       date_of_birth: z.date().or(z.string()).optional(),
-      pincode: z
-        .string()
-        .min(1, t("field_required"))
-        .refine((pincode) => {
-          if (!pincode) return true;
-          return validatePincode(pincode);
-        }, t("invalid_pincode_msg")),
-      geo_organization: z
-        .string()
-        .min(1, t("organization_required"))
-        .optional(),
+      pincode: validators().pincode,
+      geo_organization: z.string().min(1, t("organization_required")),
       ageInputType: z.enum(["age", "date_of_birth"]),
     })
     .superRefine((data, ctx) => {
@@ -115,25 +97,19 @@ export function PatientRegistration(props: PatientRegistrationProps) {
     defaultValues: {
       name: "",
       ageInputType: "date_of_birth",
-      age: undefined,
-      date_of_birth: undefined,
       address: "",
-      pincode: "",
-      geo_organization: undefined,
     },
   });
 
   const { mutate: createAppointment, isPending: isCreatingAppointment } =
     useMutation({
-      mutationFn: (body: AppointmentCreateRequest) =>
-        mutate(PublicAppointmentApi.createAppointment, {
-          pathParams: { id: selectedSlot?.id },
-          body,
-          headers: {
-            Authorization: `Bearer ${tokenData.token}`,
-          },
-        })(body),
-      onSuccess: (data: Appointment) => {
+      mutationFn: mutate(PublicAppointmentApi.createAppointment, {
+        pathParams: { id: slotId },
+        headers: {
+          Authorization: `Bearer ${tokenData.token}`,
+        },
+      }),
+      onSuccess: (data: PublicAppointment) => {
         toast.success(t("appointment_created_success"));
         queryClient.invalidateQueries({
           queryKey: [
@@ -151,14 +127,12 @@ export function PatientRegistration(props: PatientRegistrationProps) {
     });
 
   const { mutate: createPatient } = useMutation({
-    mutationFn: (body: Partial<AppointmentPatientRegister>) =>
-      mutate(routes.otp.createPatient, {
-        body: { ...body, phone_number: tokenData.phoneNumber },
-        headers: {
-          Authorization: `Bearer ${tokenData.token}`,
-        },
-      })(body),
-    onSuccess: (data: Patient) => {
+    mutationFn: mutate(publicPatientApi.create, {
+      headers: {
+        Authorization: `Bearer ${tokenData.token}`,
+      },
+    }),
+    onSuccess: (data: PublicPatientRead) => {
       toast.success(t("patient_created_successfully"));
       queryClient.invalidateQueries({
         queryKey: ["patients"],
@@ -166,14 +140,13 @@ export function PatientRegistration(props: PatientRegistrationProps) {
       publish("patient:upsert", data);
       createAppointment({
         patient: data.id,
-        reason_for_visit: reason ?? "",
+        note: reason ?? "",
       });
     },
   });
 
   const onSubmit = form.handleSubmit((data) => {
     const formattedData = {
-      phone_number: tokenData.phoneNumber,
       name: data.name,
       gender: data.gender,
       address: data.address || "",
@@ -181,10 +154,9 @@ export function PatientRegistration(props: PatientRegistrationProps) {
         data.ageInputType === "date_of_birth"
           ? dateQueryString(data.date_of_birth)
           : undefined,
-      age: data.ageInputType === "age" ? data.age : undefined,
-      pincode: data.pincode || undefined,
+      age: data.ageInputType === "age" ? Number(data.age) : undefined,
+      pincode: data.pincode,
       geo_organization: data.geo_organization,
-      is_active: true,
     };
     createPatient(formattedData);
   });
@@ -234,7 +206,7 @@ export function PatientRegistration(props: PatientRegistrationProps) {
                   <FormItem className="flex flex-col">
                     <FormLabel aria-required>{t("patient_name")}</FormLabel>
                     <FormControl>
-                      <Input {...field} placeholder={t("type_patient_name")} />
+                      <Input {...field} placeholder={t("type_name")} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -244,29 +216,17 @@ export function PatientRegistration(props: PatientRegistrationProps) {
                 control={form.control}
                 name="gender"
                 render={({ field }) => (
-                  <FormItem className="space-y-3">
+                  <FormItem className="flex flex-col">
                     <FormLabel aria-required>{t("sex")}</FormLabel>
                     <FormControl>
-                      <RadioGroup
+                      <RadioInput
                         {...field}
                         onValueChange={field.onChange}
-                        value={field.value}
-                        className="flex gap-5 flex-wrap"
-                      >
-                        {GENDER_TYPES.map((g) => (
-                          <FormItem key={g.id} className="flex">
-                            <FormControl>
-                              <RadioGroupItem
-                                value={g.id}
-                                data-cy={`gender-radio-${g.id.toLowerCase()}`}
-                              />
-                            </FormControl>
-                            <FormLabel className="font-normal">
-                              {t(`GENDER__${g.id}`)}
-                            </FormLabel>
-                          </FormItem>
-                        ))}
-                      </RadioGroup>
+                        options={GENDER_TYPES.map((g) => ({
+                          value: g.id,
+                          label: t(`GENDER__${g.id}`),
+                        }))}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -283,25 +243,17 @@ export function PatientRegistration(props: PatientRegistrationProps) {
                         {t("date_of_birth_or_age")}
                       </FormLabel>
                       <FormControl>
-                        <RadioGroup
-                          value={field.value}
+                        <RadioInput
+                          {...field}
                           onValueChange={field.onChange}
-                          className="flex items-center divide-x divide-secondary-400 bg-white rounded-md w-fit border border-secondary-400"
-                        >
-                          <div className="flex items-center gap-2 px-4 py-2">
-                            <RadioGroupItem
-                              id="dob-option"
-                              value="date_of_birth"
-                            />
-                            <Label htmlFor="dob-option">
-                              {t("date_of_birth")}
-                            </Label>
-                          </div>
-                          <div className="flex items-center gap-2 px-4 py-2">
-                            <RadioGroupItem id="age-option" value="age" />
-                            <Label htmlFor="age-option">{t("age")}</Label>
-                          </div>
-                        </RadioGroup>
+                          options={[
+                            {
+                              value: "date_of_birth",
+                              label: t("date_of_birth"),
+                            },
+                            { value: "age", label: t("age") },
+                          ]}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -325,7 +277,6 @@ export function PatientRegistration(props: PatientRegistrationProps) {
                             onChange={(date) =>
                               field.onChange(dateQueryString(date))
                             }
-                            id="dob"
                           />
                         </FormControl>
                         <FormMessage />
@@ -338,12 +289,15 @@ export function PatientRegistration(props: PatientRegistrationProps) {
                   <FormField
                     control={form.control}
                     name="age"
-                    render={() => (
+                    render={({ field }) => (
                       <FormItem className="flex flex-col">
                         <FormLabel aria-required>{t("age")}</FormLabel>
                         <FormControl>
                           <Input
-                            {...form.register("age")}
+                            type="number"
+                            inputMode="numeric"
+                            pattern="[0-9]*"
+                            {...field}
                             placeholder={t("type_patient_age")}
                           />
                         </FormControl>
@@ -395,7 +349,18 @@ export function PatientRegistration(props: PatientRegistrationProps) {
                   <FormItem className="flex flex-col">
                     <FormLabel aria-required>{t("pincode")}</FormLabel>
                     <FormControl>
-                      <Input {...field} />
+                      <Input
+                        {...field}
+                        onChange={(e) => {
+                          const value = e.target.value
+                            ? Number(e.target.value)
+                            : undefined;
+                          field.onChange(value);
+                        }}
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        type="number"
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -409,6 +374,7 @@ export function PatientRegistration(props: PatientRegistrationProps) {
                   <FormItem className="flex flex-col">
                     <FormControl>
                       <GovtOrganizationSelector
+                        {...field}
                         required
                         authToken={tokenData.token}
                         onChange={(value) => {
