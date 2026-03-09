@@ -55,6 +55,7 @@ export type PatientRegistrationFormComponentType = React.FC<{
   form: UseFormReturn<any>; // eslint-disable-line @typescript-eslint/no-explicit-any
   facilityId?: string;
   patientId?: string;
+  submitForm?: () => void;
 }>;
 
 export type PatientDetailsTabDemographyGeneralInfoComponentType = React.FC<{
@@ -139,6 +140,7 @@ export type PluginManifest = {
   routes?: AppRoutes;
   extends?: readonly SupportedPluginExtensions[];
   navItems?: NavigationLink[];
+  billingNavItems?: NavigationLink[];
   userNavItems?: NavigationLink[];
   adminNavItems?: NavigationLink[];
   organizationTabs?: PluginOrganizationTab[];
